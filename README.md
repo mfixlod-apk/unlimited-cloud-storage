@@ -11,10 +11,12 @@ Developer documentation is indexed in [`docs/README.md`](docs/README.md).
 - Phone-number login fallback
 - Session restore from IndexedDB
 - Private broadcast-channel creation and selection
-- Paginated gallery with cached thumbnails, infinite scroll, and keyboard previous/next viewing
-- Local filename search and media-type filters
+- Paginated, month-groupable gallery with newest/oldest ordering, cached thumbnails, infinite scroll, and keyboard previous/next viewing
+- Channel switching from the desktop sidebar and mobile drive header
+- Full-history filename search and media-type filters
+- Adaptive off-screen gallery unloading with a configurable 1 GB default memory budget
 - Sequential drag-and-drop or file-picker uploads with progress and cancellation
-- Exact-byte image/document storage, broad video/audio uploads, browser-supported media viewing, file downloads, and permanent deletion
+- Exact-byte image/document storage, broad video/audio uploads, progressive video/audio playback with seeking and a buffer bar, file downloads, and permanent deletion
 - Responsive desktop/mobile UI and installable PWA shell
 - Separate controls for clearing thumbnails, forgetting a browser, and revoking the Telegram session
 
@@ -77,10 +79,10 @@ The maintained [`teleproto`](https://docs.teleproto.dev/) MTProto client is used
 
 ## Known constraints
 
-- Browser previews still use an in-memory Blob and are disabled above 750 MB. Downloads stream directly to a chosen file in browsers with the File System Access API; other browsers use a Blob fallback and warn before very large downloads.
+- Video and audio first use same-origin progressive byte-range playback: the browser pulls 1 MB or less at a time, cancels abandoned Telegram requests when seeking, and manages eviction of previously buffered ranges. A playback interruption offers an explicit stream retry instead of silently loading the full file. Images and the initial compatibility fallback still use an in-memory Blob bounded by the configured memory tier: 128 MB at 256 MB, 384 MB at 512 MB, 768 MB at 1 GB, and up to 1.5 GB at 2 GB. Downloads stream directly to a chosen file in browsers with the File System Access API; other browsers use a Blob fallback and warn before very large downloads.
 - Every file type can be uploaded and downloaded as a Telegram document. Inline image/video/audio preview depends on the browser supporting that file's container and codec; unsupported media remains downloadable.
 - Browser uploads are read in bounded Telegram parts rather than copied into one whole-file JavaScript buffer.
-- Search covers the history pages loaded in the current session.
+- An active filename search scans remaining history pages automatically. Very large channels can therefore take time and remain subject to Telegram flood waits.
 - Uploads and downloads must remain in the foreground on mobile browsers.
 - Telegram flood waits, per-file limits, and account restrictions still apply.
 

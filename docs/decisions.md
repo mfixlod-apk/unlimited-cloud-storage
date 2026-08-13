@@ -68,21 +68,21 @@ The option is off by default so a successful login does not create a persistent 
 
 **Consequences:** Large batches prioritize reliability over maximum throughput. Parallelism should become adaptive only after measurement across browsers and Telegram accounts.
 
-## 9. Blob-based previews and streaming downloads
+## 9. Progressive media, bounded Blob previews, and streaming downloads
 
-**Decision:** Use complete in-memory Blobs for previews, disable previews above 750 MB, and stream downloads to a chosen file through the File System Access API when available. Use a confirmed Blob fallback elsewhere.
+**Decision:** Serve video/audio to native media elements through a short-lived same-origin byte-range bridge capped at 1 MB per response. Use metadata-only preload and propagate abandoned HTTP-request cancellation to Telegram during seeking. Retain complete in-memory Blobs for images and initial compatibility fallback within explicit adaptive tiers—128 MB, 384 MB, 768 MB, and at most 1.5 GB—derived from the configured/effective memory budget. Never silently switch a running stream to full-file loading after a runtime error. Stream downloads to a chosen file through the File System Access API when available and use a confirmed Blob fallback elsewhere.
 
-**Why:** Blob URLs provide broad media-element support, while direct chunk writes avoid buffering multi-gigabyte video downloads on supporting browsers.
+**Why:** Native range playback supplies the familiar seek controls and lets the browser manage buffering/eviction without downloading an entire video. Blob URLs remain a broad compatibility path, while direct chunk writes avoid buffering multi-gigabyte downloads on supporting browsers.
 
-**Consequences:** Preview remains memory-heavy below the threshold. Firefox, Safari, and some mobile browsers may take the Blob fallback because native save-file streaming support varies.
+**Consequences:** Progressive playback requires a controlling service worker and a browser-supported media codec/container. Failure to initialize the bridge can use the bounded Blob compatibility path; a runtime stream/decoder failure requires an explicit retry or download so an unexpected full-file allocation cannot follow a seek. Firefox, Safari, and some mobile browsers may also take the Blob download fallback because native save-file support varies.
 
 ## 10. Same-origin custom service worker
 
 **Decision:** Maintain a small service worker instead of a general runtime-caching plugin.
 
-**Why:** The cache boundary is security-sensitive and simple: cache the static shell, ignore every cross-origin request.
+**Why:** The cache boundary is security-sensitive: cache the static shell, ignore every cross-origin request, and explicitly keep short-lived same-origin media ranges out of Cache Storage.
 
-**Consequences:** Cache-version changes are manual. Developers must increment `CACHE_NAME` when shell behavior changes and test offline upgrades.
+**Consequences:** Cache-version changes are manual. The worker also mediates progressive range requests through the owning authenticated page, but never receives credentials or owns a Telegram client. Developers must increment `CACHE_NAME` when shell behavior changes and test offline upgrades plus range playback.
 
 ## 11. No application-managed encryption in the MVP
 
@@ -99,3 +99,11 @@ The option is off by default so a successful login does not create a persistent 
 **Why:** Onboarding and drive access are a short linear session-dependent flow, and URL routes must not expose authentication data.
 
 **Consequences:** `App.tsx` is currently large. Components can be extracted later without changing the state-machine semantics.
+
+## 13. Lightweight metadata and windowed gallery chunks
+
+**Decision:** Retain only compact `CloudItem` metadata for discovered history, keep a bounded 300-message LRU for current work, resolve other Telegram messages by ID on demand, and unmount gallery chunks outside an adaptive near-viewport margin.
+
+**Why:** Channels with thousands of files should remain searchable without retaining thousands of Teleproto object graphs, DOM cards, decoded thumbnails, or Blob URLs.
+
+**Consequences:** Returning to a parked chunk may briefly reload thumbnails from IndexedDB. Active search deliberately paginates to the start of history and can take time or encounter Telegram flood waits on very large channels.

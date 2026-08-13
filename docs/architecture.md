@@ -20,7 +20,7 @@ Telegram
     └── private channel containing one media message per file
 ```
 
-Telegram channel history is authoritative for files. IndexedDB is a disposable device-local optimization and credential/session store. The service worker caches only static same-origin application resources.
+Telegram channel history is authoritative for files. IndexedDB is a disposable device-local optimization and credential/session store. The service worker caches only static same-origin application resources; its authenticated-page media bridge returns short-lived byte ranges with `no-store` and never caches them.
 
 ## Runtime layers
 
@@ -45,9 +45,9 @@ Important screen components:
 
 - `CredentialsScreen` validates the user's API ID and hash.
 - `AuthScreen` coordinates QR, phone-code, and 2FA callbacks.
-- `ChannelScreen` displays eligible private channels.
-- `DriveScreen` owns loaded history, filters, uploads, viewer state, and infinite scrolling.
-- `SettingsPanel` exposes cache clearing, device forgetting, channel switching, and Telegram logout.
+- `ChannelScreen` displays eligible broadcast channels with an opt-in public-channel toggle.
+- `DriveScreen` owns lightweight history metadata, filters, month grouping, uploads, viewer state, and infinite scrolling.
+- `SettingsPanel` exposes the memory budget, cache clearing, device forgetting, and Telegram logout.
 
 The UI is currently kept in one file because the product is still small. If `App.tsx` grows substantially, split by screen while keeping orchestration in `App` and Telegram operations behind `TelegramDrive`.
 
@@ -61,7 +61,7 @@ The UI is currently kept in one file because the product is still small. If `App
 - channel discovery and filtering;
 - converting Telegram messages to `CloudItem` objects;
 - paginated history reads;
-- thumbnail, original-file, upload, and delete operations.
+- thumbnail, original-file, progressive-range, upload, and delete operations.
 
 UI code should not import `TelegramClient`, `Api`, or other Teleproto internals. Keeping one integration boundary makes future client-library upgrades much safer.
 
@@ -71,7 +71,7 @@ UI code should not import `TelegramClient`, `Api`, or other Teleproto internals.
 
 ### PWA boundary
 
-[`src/main.tsx`](../src/main.tsx) registers [`public/service-worker.js`](../public/service-worker.js) only for production builds. The service worker ignores cross-origin requests, so Telegram WebSockets and file traffic cannot enter the application-shell cache.
+[`src/main.tsx`](../src/main.tsx) registers [`public/service-worker.js`](../public/service-worker.js) in development and production. Development registration disables application-shell caching but keeps the progressive media bridge testable. The worker ignores cross-origin requests, so Telegram WebSockets cannot enter the application-shell cache. Progressive media uses a same-origin, random-token route that asks the active page for one bounded Telegram byte range and returns it with `Cache-Control: no-store`.
 
 ## Domain model
 
@@ -82,6 +82,8 @@ interface CloudChannel {
   id: string;
   title: string;
   inputEntity: unknown;
+  isPublic: boolean;
+  canWrite: boolean;
 }
 ```
 
@@ -99,11 +101,10 @@ interface CloudItem {
   size: number;
   date: Date;
   duration?: number;
-  message: unknown;    // original Teleproto message used for media operations
 }
 ```
 
-There is no separate file database. The Telegram message ID functions as the object ID, and deleting an item deletes that message from Telegram.
+There is no separate file database. The Telegram message ID functions as the object ID, and deleting an item deletes that message from Telegram. Full Teleproto message objects are deliberately not retained for every item; a single message is resolved by ID only when an operation needs its media reference.
 
 ## Data flows
 
@@ -122,14 +123,16 @@ Read connection from IndexedDB
 ### History and thumbnails
 
 ```text
-getMessages(limit: 40, offsetId)
+getMessages(limit: 100, offsetId)
   → discard messages without supported media
-  → map remaining messages to CloudItem
-  → render cards immediately
+  → map remaining messages to lightweight CloudItem metadata
+  → window cards into near-viewport chunks
   → read each thumbnail from IndexedDB
   → download Telegram thumbnail on cache miss
   → store disposable Blob in IndexedDB
 ```
+
+Off-screen chunks unmount their card and thumbnail components, revoke Blob URLs, and retain only measured spacer height plus lightweight metadata. Chunk sizes are exact multiples of the responsive column count, and incomplete loading rows receive temporary placeholders. Active search continues pagination until history is exhausted; nonmatching entries never create cards or thumbnail URLs. Reversing order restarts Telegram pagination from the oldest end instead of merely reversing the currently loaded array.
 
 ### Upload
 
@@ -145,11 +148,16 @@ File picker or drop
 ### View or download
 
 ```text
-Telegram media message
-  → downloadMedia with an ordered chunk writer and cancellation
-  ├── preview → collect Blob → object URL → viewer → revoke URL
-  ├── supported browser download → write chunks to chosen file
-  └── fallback download → collect Blob → temporary anchor
+Telegram message ID
+  → resolve one current Teleproto message on demand
+  ├── video/audio preview → random same-origin URL → native Range request
+  │     → service worker MessageChannel → iterDownload ≤ 1 MB → 206 response
+  │     → abandoned request aborts its Telegram range during seeking
+  │     → browser-managed playback buffer; explicit retry on runtime failure
+  ├── image preview → collect Blob → object URL → viewer → revoke URL
+  ├── normal download → collect Blob → temporary anchor
+  ├── large supported-browser download → ordered chunks → chosen file
+  └── large fallback download → confirm → collect Blob → temporary anchor
 ```
 
 ## Build architecture

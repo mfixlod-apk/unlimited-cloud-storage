@@ -5,11 +5,10 @@ import "./styles.css";
 
 globalThis.Buffer = Buffer;
 
-if ("serviceWorker" in navigator && import.meta.env.PROD) {
-  window.addEventListener("load", () => {
-    const serviceWorkerUrl = new URL("service-worker.js", document.baseURI);
-    void navigator.serviceWorker.register(serviceWorkerUrl, { scope: "./" });
-  });
+if ("serviceWorker" in navigator) {
+  const serviceWorkerUrl = new URL("service-worker.js", document.baseURI);
+  if (import.meta.env.DEV) serviceWorkerUrl.searchParams.set("dev", "1");
+  void navigator.serviceWorker.register(serviceWorkerUrl, { scope: "./" });
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

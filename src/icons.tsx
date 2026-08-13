@@ -29,3 +29,4 @@ export const FolderIcon = (props: Props) => <Icon {...props}><path d="M3 6h7l2 2
 export const EyeIcon = (props: Props) => <Icon {...props}><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></Icon>;
 export const EyeOffIcon = (props: Props) => <Icon {...props}><path d="m3 3 18 18M10.6 10.7a2 2 0 0 0 2.7 2.7M9.9 5.2A9.8 9.8 0 0 1 12 5c6 0 10 7 10 7a16 16 0 0 1-2.1 2.8M6.6 6.6C3.8 8.5 2 12 2 12s4 7 10 7a9.7 9.7 0 0 0 3.4-.6"/></Icon>;
 export const PlusIcon = (props: Props) => <Icon {...props}><path d="M12 5v14M5 12h14"/></Icon>;
+export const CalendarIcon = (props: Props) => <Icon {...props}><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></Icon>;

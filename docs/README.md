@@ -36,7 +36,7 @@ The production build and responsive UI have been checked locally. A live Telegra
 | [`src/styles.css`](../src/styles.css) | Entire visual system and responsive layout |
 | [`src/icons.tsx`](../src/icons.tsx) | Local SVG icon components |
 | [`src/main.tsx`](../src/main.tsx) | Browser bootstrap, Buffer shim, and service-worker registration |
-| [`public/service-worker.js`](../public/service-worker.js) | Same-origin application-shell caching only |
+| [`public/service-worker.js`](../public/service-worker.js) | Same-origin application-shell cache and uncached progressive-media range bridge |
 | [`public/manifest.webmanifest`](../public/manifest.webmanifest) | PWA identity, icons, scope, and display settings |
 | [`vite.config.ts`](../vite.config.ts) | Relative build base, Node polyfills, and narrowly checked Teleproto browser transforms |
 | [`.github/workflows/deploy-pages.yml`](../.github/workflows/deploy-pages.yml) | Static GitHub Pages build and deployment |

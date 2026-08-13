@@ -3,7 +3,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
 
-const teleprotoBrowserSources = /teleproto[\\/](?:Helpers|client[\\/](?:downloads|uploads)|tl[\\/]custom[\\/]file)\.js$/;
+const teleprotoBrowserSources = /teleproto[\\/](?:Helpers|client[\\/](?:downloads|uploads)|tl[\\/](?:custom[\\/]file|runtime[\\/]helpers))\.js$/;
 const unsafeWriteStreamCheck = "writer instanceof fs.WriteStream";
 const safeWriteStreamCheck =
   'typeof fs.WriteStream === "function" && writer instanceof fs.WriteStream';
@@ -18,6 +18,16 @@ function replaceExpected(source: string, unsafe: string, safe: string, expected:
 }
 
 function patchTeleprotoSource(source: string, path: string) {
+  if (/[\\/]tl[\\/]runtime[\\/]helpers\.js$/.test(path)) {
+    return replaceExpected(
+      source,
+      'if (typeof data === "string") {\n            data = Buffer.from(data);\n        }\n        else {',
+      'if (typeof data === "string") {\n            data = Buffer.from(data);\n        }\n        else if (ArrayBuffer.isView(data)) {\n            data = Buffer.from(data.buffer, data.byteOffset, data.byteLength);\n        }\n        else {',
+      1,
+      "typed byte serialization",
+    );
+  }
+
   if (/[\\/]client[\\/]downloads\.js$/.test(path)) {
     return replaceExpected(source, unsafeWriteStreamCheck, safeWriteStreamCheck, 2, "download WriteStream");
   }

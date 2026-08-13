@@ -38,6 +38,8 @@ Teleproto emits token + expiry
 
 The QR token is displayed as a data-URL image and is not stored. Closing or switching away from the QR flow aborts token polling. Token and timeout errors are allowed to retry so Teleproto can rotate an expired QR code.
 
+The browser build creates base64url manually from standard base64. Do not pass `"base64url"` to the browser `Buffer` polyfill: some production bundles reject that Node-specific encoding name.
+
 The `expires` value returned by Teleproto is treated as a Unix timestamp in seconds for the UI countdown.
 
 ## Phone authentication
@@ -72,11 +74,10 @@ If restoration fails, the app disconnects and returns to credential entry with a
 ```text
 dialog.isChannel is true
 entity.broadcast is true
-entity.username is absent
 entity.left is not true
 ```
 
-This includes private and public broadcast channels and excludes supergroups, ordinary groups, and channels the user has left. Public channels are visibly labeled and require confirmation because uploaded files may be visible to subscribers. Fetching every dialog may take longer on accounts with hundreds of conversations, but avoids silently hiding older or archived channels. Refreshing from the chooser updates the list in place instead of navigating back to the selected drive.
+This includes private and public broadcast channels and excludes supergroups, ordinary groups, and channels the user has left. Public channels are hidden by default. In the drive, their toggle appears only inside the open channel dropdown; the full chooser has the same opt-in control. Public channels are visibly labeled and require confirmation because uploaded files may be visible to subscribers. Fetching every dialog may take longer on accounts with hundreds of conversations, but avoids silently hiding older or archived channels. Refreshing from the chooser updates the list in place instead of navigating back to the selected drive.
 
 Only the channel ID is persisted. The current `inputEntity` is retained in memory because it contains session-specific Telegram addressing information.
 
@@ -93,23 +94,27 @@ The channel screen can also call `createPrivateChannel()`. It uses Teleproto's n
 
 When Telegram does not provide a filename, the UI creates one from the kind and message ID. File sizes and dates may arrive as JavaScript numbers or Teleproto big-integer values, so `asNumber()` normalizes them.
 
-## Pagination
+## Pagination, search, and memory
 
-History pages use `getMessages()` with a default limit of 40. The lowest raw message ID becomes the next `offsetId`. `hasMore` remains true only when Telegram returns a full raw page.
+History pages use `getMessages()` with a default limit of 100. Newest-first pagination uses the lowest raw message ID as the next `offsetId`; oldest-first pagination passes Teleproto's `reverse` option and uses the highest ID. `hasMore` remains true only when Telegram returns a full raw page. The sidebar count represents media items discovered so far and includes `+` until `hasMore` becomes false.
 
 The offset must be based on all returned messages, not only mapped media items. Otherwise pages containing text/service messages could cause duplicates or skipped history.
 
 An `IntersectionObserver` in `DriveScreen` requests the next page when the bottom sentinel is within 300 pixels of the viewport.
 
+When a filename search is active, `DriveScreen` automatically requests remaining pages until the channel has been fully checked. Only matching entries render cards; nonmatching entries remain compact metadata and never allocate thumbnail Blob URLs.
+
+`CloudItem` deliberately excludes the original Teleproto message object. Thumbnail, preview, and download operations resolve the current message by channel and ID only when needed. `TelegramDrive` keeps a bounded 300-entry LRU of recently returned messages so current-page thumbnails and clicks avoid redundant Telegram requests without allowing a 10,000-file object graph to accumulate. The gallery is split into observed chunks: chunks outside the adaptive near-viewport margin unmount cards, revoke object URLs, and preserve a measured spacer so scroll position remains stable. Each chunk is a multiple of the current responsive column count, preventing chunk boundaries from leaving artificial partial rows. The final loading row reserves missing cells with placeholders until another page fills it. The configured memory budget defaults to 1 GB and controls the prefetch margin and preview ceiling; `navigator.deviceMemory`, when available, can lower the effective budget for smaller devices.
+
 ## Thumbnails
 
-Images and videos request thumbnail index `0`. The cache key is:
+Images and videos prefer thumbnail index `1`, a modest quality increase over Telegram's smallest thumbnail without loading each original. Media with only one usable thumbnail falls back to index `0`. If the browser cannot decode that response, the component evicts it and retries once with Telegram's largest available thumbnail; a second failure falls back to the file-type icon rather than displaying a broken-image glyph. The versioned cache key is:
 
 ```text
-<channel ID>:<message ID>
+v3:<channel ID>:<message ID>
 ```
 
-This prevents collisions between different channels whose message IDs happen to match. Thumbnail failures are non-fatal; the card falls back to a type icon.
+This prevents collisions between different channels whose message IDs happen to match and invalidates older low-resolution entries. Thumbnail failures are non-fatal; the card falls back to a type icon.
 
 ## Uploads
 
@@ -145,22 +150,25 @@ An unsupported preview never means an unsupported stored file. The viewer report
 
 Normal downloads use Teleproto's native in-memory result and a temporary download anchor, which hands the completed file to Chrome's standard download manager. Files above 750 MB use `showSaveFilePicker` when available and pass a custom ordered writer to `downloadMedia()`, writing Telegram chunks directly to disk without retaining the full video in memory. Browsers without a writable file handle warn before using the large in-memory fallback.
 
-Image/video/audio previews still create complete in-memory Blobs and temporary object URLs. The 750 MB preview ceiling therefore remains. While the viewer is open, `ArrowLeft` and `ArrowRight` move through the current filtered gallery, visible buttons provide the same navigation, and `Escape` closes the viewer.
+Video and audio first use progressive same-origin byte-range playback. `Viewer` creates a random, short-lived stream token; the native media element requests ranges from `__telegram_stream__/<token>/<size>`; the service worker forwards each request to the owning page over a `MessageChannel`; and `TelegramDrive.iterDownload()` fetches at most 1 MB from Telegram. Both normal and suffix ranges are supported so MP4 files whose index is stored at the end can initialize and seek. The media element uses `preload="metadata"` rather than encouraging Chrome to fetch the full resource. When seeking abandons an HTTP request, its `Request.signal` sends a request-ID cancellation message to the page and aborts Teleproto's matching `iterDownload()` signal, freeing the download slot instead of finishing an obsolete range. The native player exposes its normal seek bar, and the viewer adds a buffered-range bar. Closing or changing the file removes the token and aborts every outstanding range; no media response enters Cache Storage, and the browser controls eviction of old decoded/buffered data.
 
-Teleproto 1.228 also assumes Node's `fs.WriteStream` constructor exists while closing every download writer. The browser `fs` polyfill intentionally does not provide that constructor, so the unguarded `instanceof` check otherwise throws `Right-hand side of 'instanceof' is not an object` for thumbnails, previews, and downloads. `vite.config.ts` applies a narrow source transform that first verifies `WriteStream` is a constructor. The transform is registered both in Vite's development dependency optimizer and in the normal build pipeline; it does not modify `node_modules` and it does not relax the production CSP.
+If progressive playback cannot be opened at all because service workers are unavailable or stale, video/audio use the complete-Blob compatibility path within the memory ceiling. Once progressive playback has started, a runtime range or decoder error never silently starts a full-file download: the viewer stops the stream and offers **Retry stream** or **Download original**. Images always use the Blob path. The effective-memory tiers allow 128 MB at 256 MB, 384 MB at 512 MB, 768 MB at 1 GB, and up to 1.5 GB at 2 GB. This retains original preview quality for files within budget instead of downsampling them. Opening the viewer pauses/aborts gallery thumbnail transfers and automatic search/history pagination so the original media request is not stuck behind stress-test traffic. A cached thumbnail is shown immediately behind the loading indicator when available. While the viewer is open, `ArrowLeft` and `ArrowRight` move through the current filtered gallery, visible buttons provide the same navigation, and `Escape` closes the viewer.
+
+Teleproto 1.228 also assumes Node's `fs.WriteStream` constructor exists while closing every download writer. The browser `fs` polyfill intentionally does not provide that constructor, so the unguarded `instanceof` check otherwise throws `Right-hand side of 'instanceof' is not an object` for thumbnails, previews, and downloads. Its TL serializer also rejects typed byte-array views that are not instances of the exact bundled `Buffer`, producing `Bytes or str expected, not object` when serializing Telegram file references. `vite.config.ts` applies narrow source transforms that guard `WriteStream` and convert typed views to the active `Buffer`. The transforms run in both Vite's development dependency optimizer and normal production build; they do not modify `node_modules` or relax the production CSP.
 
 Current safety guardrails:
 
-- previews above 750 MB are disabled;
+- complete-Blob previews above the adaptive memory ceiling are disabled;
+- progressive responses are capped at 1 MB, cancelled when abandoned, and explicitly marked `no-store`;
 - files above 750 MB use direct-to-disk saving when supported, otherwise require confirmation;
 - `AbortSignal` is used when closing a preview;
 - object URLs are revoked during cleanup.
 
-Direct-to-disk downloads are streamed and memory-bounded where the browser exposes the native save-file API. Preview and fallback download remain Blob-based because Safari, Firefox, and some mobile browsers do not expose an equivalent writable file handle.
+Direct-to-disk downloads are streamed and memory-bounded where the browser exposes the native save-file API. Image preview, progressive-playback fallback, and fallback download remain Blob-based. Progressive playback itself relies on service workers, HTTP range semantics, and a media container/codec the current browser can decode.
 
 ## Browser compatibility transforms
 
-Teleproto's shared Node/browser code contains several Node assumptions in version 1.228. `vite.config.ts` narrowly corrects timer `.unref()`, download `fs.WriteStream` checks, browser-file chunk reads, browser MIME propagation, and multi-class file-attribute lookups. The corrections run in Vite's development optimizer and production pipeline, do not edit `node_modules`, and replace the former global `Number.prototype` timer shim.
+Teleproto's shared Node/browser code contains several Node assumptions in version 1.228. `vite.config.ts` narrowly corrects timer `.unref()`, typed-byte serialization, download `fs.WriteStream` checks, browser-file chunk reads, browser MIME propagation, and multi-class file-attribute lookups. The corrections run in Vite's development optimizer and production pipeline, do not edit `node_modules`, and replace the former global `Number.prototype` timer shim.
 
 Every correction checks the exact expected source count. A changed dependency implementation therefore fails the build with an upgrade message instead of silently applying a partial patch. Recheck and preferably remove individual transforms as upstream becomes browser-safe.
 

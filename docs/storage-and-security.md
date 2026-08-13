@@ -8,20 +8,21 @@ The app does not provide end-to-end or zero-knowledge encryption. Telegram recei
 
 ## IndexedDB schema
 
-[`src/storage.ts`](../src/storage.ts) opens database `unlimited-cloud-storage` at version `1` with two object stores.
+[`src/storage.ts`](../src/storage.ts) opens database `unlimited-cloud-storage` at version `3` with two object stores. Versions 2 and 3 clear only obsolete thumbnail entries and preserve connection, memory-limit, and channel configuration.
 
 ### `config`
 
 | Key | Value | Purpose |
 | --- | --- | --- |
 | `connection` | `{ apiId, apiHash, session }` | Restore the Telegram client when the default-off “Keep me signed in” option is enabled |
-| `channelId` | `string` | Rediscover and restore the selected private channel |
+| `channelId` | `string` | Rediscover and restore the selected broadcast channel |
+| `memoryLimitMb` | `number` | User-selected gallery/preview memory budget; defaults to 1024 MB |
 
 ### `thumbnails`
 
 | Key | Value | Purpose |
 | --- | --- | --- |
-| `<channelId>:<messageId>` | `Blob` | Disposable image/video thumbnail cache |
+| `v3:<channelId>:<messageId>` | `Blob` | Disposable image/video thumbnail cache; the prefix versions thumbnail quality/recovery behavior |
 
 Telegram remains authoritative for the file list. Clearing IndexedDB must never delete Telegram files.
 
@@ -63,7 +64,7 @@ If logout cannot reach Telegram, the current code still disconnects and clears l
 
 ## Service-worker cache
 
-[`public/service-worker.js`](../public/service-worker.js) maintains a cache named `unlimited-cloud-storage-shell-v1`.
+[`public/service-worker.js`](../public/service-worker.js) currently maintains cache `unlimited-cloud-storage-shell-v7`.
 
 It caches only same-origin GET responses:
 
@@ -71,9 +72,11 @@ It caches only same-origin GET responses:
 - compiled JavaScript and CSS encountered by the browser;
 - the manifest and icons.
 
-It exits before calling `respondWith()` for every cross-origin request. Telegram WebSockets, MTProto traffic, Telegram media, and external sites therefore bypass the service worker.
+It exits before calling `respondWith()` for every cross-origin request. Telegram WebSockets, direct MTProto traffic, and external sites therefore bypass the service worker.
 
-When changing shell behavior, increment `CACHE_NAME` so activation removes the previous app cache. Never add user-generated Blob URLs, API responses, Telegram hosts, or IndexedDB values to `APP_SHELL`.
+The one non-shell route is `__telegram_stream__/<random token>/<file size>`. It is created only in memory while a video/audio viewer is open. The worker validates the route and range, asks the owning browser page for at most 1 MB through a `MessageChannel`, and responds with `206 Partial Content`, `Accept-Ranges`, and `Cache-Control: no-store`. If the browser abandons a request while seeking, the request's abort signal cancels the corresponding Telegram iterator. The random token is removed and all outstanding ranges are aborted when the viewer closes or changes file. The worker has no Telegram session or IndexedDB access, and streamed bytes are never passed to `cache.put()`.
+
+When changing shell behavior, increment `CACHE_NAME` so activation removes the previous app cache. Never add user-generated Blob URLs, progressive stream routes, API responses, Telegram hosts, or IndexedDB values to `APP_SHELL`.
 
 ## Content Security Policy
 

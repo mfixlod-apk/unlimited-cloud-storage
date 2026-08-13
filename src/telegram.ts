@@ -29,13 +29,23 @@ export interface CloudItem {
   size: number;
   date: Date;
   duration?: number;
-  message: any;
 }
 
 export interface HistoryPage {
   items: CloudItem[];
   nextOffset: number;
   hasMore: boolean;
+}
+
+export interface ProgressiveStream {
+  url: string;
+  close: () => void;
+}
+
+interface ProgressiveStreamEntry {
+  channel: CloudChannel;
+  item: CloudItem;
+  requests: Map<string, AbortController>;
 }
 
 export interface AuthCallbacks {
@@ -64,10 +74,18 @@ const toBlob = (data: Buffer | string | undefined, mime: string): Blob | undefin
 };
 
 const TELEGRAM_REQUEST_TIMEOUT = 45_000;
+const PROGRESSIVE_CHUNK_SIZE = 1024 * 1024;
 const UNSAFE_FILE_NAME_CHARACTERS = /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g;
 const IMAGE_EXTENSIONS = new Set(["avif", "bmp", "gif", "heic", "heif", "jpeg", "jpg", "png", "tif", "tiff", "webp"]);
 const VIDEO_EXTENSIONS = new Set(["3g2", "3gp", "avi", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "ogv", "webm", "wmv"]);
 const AUDIO_EXTENSIONS = new Set(["aac", "aiff", "alac", "flac", "m4a", "mp3", "oga", "ogg", "opus", "wav", "wma"]);
+
+const base64Url = (value: Uint8Array) => Buffer.from(value)
+  .toString("base64")
+  .replace(/\+/g, "-")
+  .replace(/\//g, "_")
+  .replace(/=+$/g, "");
+const thumbnailCacheKey = (channelId: string, messageId: number) => `v3:${channelId}:${messageId}`;
 
 const safeFileName = (value: unknown, fallback: string) => {
   const raw = typeof value === "string" ? value : "";
@@ -114,6 +132,49 @@ const withTimeout = <T>(operation: Promise<T>, milliseconds: number, message: st
 export class TelegramDrive {
   private client?: TelegramClient<StringSession>;
   private credentials?: TelegramCredentials;
+  private messageCache = new Map<string, any>();
+  private progressiveStreams = new Map<string, ProgressiveStreamEntry>();
+
+  constructor() {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.addEventListener("message", (event) => {
+        if (event.data?.type === "telegram-stream-cancel") {
+          const stream = this.progressiveStreams.get(String(event.data.token));
+          stream?.requests.get(String(event.data.requestId))?.abort();
+          return;
+        }
+        if (event.data?.type !== "telegram-stream-range" || !event.ports[0]) return;
+        const port = event.ports[0];
+        const stream = this.progressiveStreams.get(String(event.data.token));
+        if (!stream) {
+          port.postMessage({ ok: false, error: "This progressive stream has expired." });
+          return;
+        }
+        const start = Math.max(0, Number(event.data.start) || 0);
+        const length = Math.max(1, Math.min(PROGRESSIVE_CHUNK_SIZE, Number(event.data.length) || 0));
+        const requestId = String(event.data.requestId);
+        const controller = new AbortController();
+        stream.requests.set(requestId, controller);
+        void this.downloadRange(stream.channel, stream.item, start, length, controller.signal).then((bytes) => {
+          if (controller.signal.aborted) return;
+          const transferable = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+          port.postMessage({ ok: true, bytes: transferable, size: stream.item.size, mime: stream.item.mime }, [transferable]);
+        }).catch((cause) => {
+          try {
+            port.postMessage({
+              ok: false,
+              cancelled: controller.signal.aborted,
+              error: controller.signal.aborted ? "Stream range cancelled" : cause instanceof Error ? cause.message : String(cause),
+            });
+          } catch {
+            // The worker already discarded this range and closed its port.
+          }
+        }).finally(() => {
+          stream.requests.delete(requestId);
+        });
+      });
+    }
+  }
 
   async connect(credentials: TelegramCredentials, session = "") {
     await this.disconnect();
@@ -143,6 +204,11 @@ export class TelegramDrive {
       }
     }
     this.client = undefined;
+    this.messageCache.clear();
+    for (const stream of this.progressiveStreams.values()) {
+      for (const request of stream.requests.values()) request.abort();
+    }
+    this.progressiveStreams.clear();
   }
 
   async logOut() {
@@ -155,7 +221,9 @@ export class TelegramDrive {
     const credentials = this.requiredCredentials();
     const user = await client.signInUserWithQrCode(credentials, {
       qrCode: async ({ token, expires }) => {
-        const uri = `tg://login?token=${token.toString("base64url")}`;
+        // buffer's browser polyfill does not consistently implement the
+        // Node-only `base64url` encoding name, so encode it portably.
+        const uri = `tg://login?token=${base64Url(token)}`;
         await onQr(uri, expires);
       },
       password: askPassword,
@@ -227,44 +295,64 @@ export class TelegramDrive {
     };
   }
 
-  async getHistory(channel: CloudChannel, offsetId = 0, limit = 40): Promise<HistoryPage> {
+  async getHistory(channel: CloudChannel, offsetId = 0, limit = 100, reverse = false): Promise<HistoryPage> {
     const messages = await withTimeout(
       this.requiredClient().getMessages(channel.inputEntity, {
         limit,
         offsetId: offsetId || undefined,
+        reverse,
       }),
       TELEGRAM_REQUEST_TIMEOUT,
       "Telegram took too long to load this part of the channel history. Try again.",
     );
     const raw = Array.from(messages as any[]);
+    for (const message of raw) {
+      if (message?.id && message?.media) this.rememberMessage(channel.id, Number(message.id), message);
+    }
     const items = raw.flatMap((message: any) => {
       const item = this.toCloudItem(message, channel.id);
       return item ? [item] : [];
     });
     const ids = raw.map((message: any) => Number(message.id)).filter(Number.isFinite);
+    const nextOffset = ids.length ? (reverse ? Math.max(...ids) : Math.min(...ids)) : offsetId;
     return {
       items,
-      nextOffset: ids.length ? Math.min(...ids) : offsetId,
-      hasMore: raw.length === limit && ids.length > 0 && Math.min(...ids) !== offsetId,
+      nextOffset,
+      hasMore: raw.length === limit && ids.length > 0 && nextOffset !== offsetId,
     };
   }
 
-  async getThumbnail(item: CloudItem): Promise<Blob | undefined> {
-    const key = `${item.channelId}:${item.id}`;
-    const cached = await localStore.getThumbnail(key);
-    if (cached) return cached;
+  async getCachedThumbnail(item: CloudItem) {
+    return localStore.getThumbnail(thumbnailCacheKey(item.channelId, item.id));
+  }
+
+  async getThumbnail(channel: CloudChannel, item: CloudItem, signal?: AbortSignal, fallback = false): Promise<Blob | undefined> {
+    // v2 invalidates the former smallest-size thumbnails.
+    const key = thumbnailCacheKey(item.channelId, item.id);
+    const cached = fallback ? undefined : await localStore.getThumbnail(key);
+    if (cached?.size) return cached;
+    if (fallback || cached) await localStore.deleteThumbnail(key);
     if (item.kind !== "image" && item.kind !== "video") return undefined;
-    const data = await this.requiredClient().downloadMedia(item.message, {
-      thumb: 0,
+    const message = await this.getMessage(channel, item.id);
+    if (signal?.aborted) throw new DOMException("Thumbnail cancelled", "AbortError");
+    const media = message?.photo || message?.document;
+    const thumbnails = [...(media?.sizes || media?.thumbs || []), ...(media?.videoSizes || [])]
+      .filter((thumbnail: any) => thumbnail?.className !== "PhotoPathSize");
+    const data = await this.requiredClient().downloadMedia(message, {
+      // Prefer the second-smallest rendition, but retain support for media
+      // that exposes only one usable Telegram thumbnail.
+      thumb: fallback ? Math.max(0, thumbnails.length - 1) : thumbnails.length > 1 ? 1 : 0,
       requestTimeout: TELEGRAM_REQUEST_TIMEOUT,
+      signal,
     });
     const blob = toBlob(data, "image/jpeg");
-    if (blob) await localStore.saveThumbnail(key, blob);
+    if (blob?.size) await localStore.saveThumbnail(key, blob);
     return blob;
   }
 
-  async download(item: CloudItem, onProgress?: (value: number) => void, signal?: AbortSignal) {
-    const data = await this.requiredClient().downloadMedia(item.message, {
+  async download(channel: CloudChannel, item: CloudItem, onProgress?: (value: number) => void, signal?: AbortSignal) {
+    const message = await this.getMessage(channel, item.id);
+    const data = await this.requiredClient().downloadMedia(message, {
       signal,
       progressCallback: (received: any, total: any) => {
         const full = asNumber(total) || item.size;
@@ -279,12 +367,14 @@ export class TelegramDrive {
   }
 
   async downloadTo(
+    channel: CloudChannel,
     item: CloudItem,
     write: (chunk: Uint8Array<ArrayBuffer>) => Promise<void>,
     onProgress?: (value: number) => void,
     signal?: AbortSignal,
   ) {
-    await this.requiredClient().downloadMedia(item.message, {
+    const message = await this.getMessage(channel, item.id);
+    await this.requiredClient().downloadMedia(message, {
       outputFile: {
         write: (chunk: Buffer) => write(Uint8Array.from(chunk)),
         close: () => undefined,
@@ -297,6 +387,83 @@ export class TelegramDrive {
     });
     if (signal?.aborted) throw new DOMException("Download cancelled", "AbortError");
     onProgress?.(1);
+  }
+
+  async openProgressiveStream(channel: CloudChannel, item: CloudItem): Promise<ProgressiveStream> {
+    if (!("serviceWorker" in navigator)) throw new Error("Progressive playback is not supported by this browser.");
+    if (!Number.isSafeInteger(item.size) || item.size <= 0) throw new Error("This file does not report a streamable size.");
+    await navigator.serviceWorker.ready;
+    const controller = await this.waitForServiceWorkerController();
+    if (!controller) throw new Error("The progressive playback worker is not ready.");
+    const token = crypto.randomUUID();
+    const stream: ProgressiveStreamEntry = { channel, item, requests: new Map() };
+    this.progressiveStreams.set(token, stream);
+    const url = new URL(`__telegram_stream__/${token}/${item.size}`, document.baseURI).href;
+    return {
+      url,
+      close: () => {
+        for (const request of stream.requests.values()) request.abort();
+        this.progressiveStreams.delete(token);
+      },
+    };
+  }
+
+  private async downloadRange(channel: CloudChannel, item: CloudItem, offset: number, length: number, signal: AbortSignal) {
+    const message = await this.getMessage(channel, item.id);
+    const chunks: Uint8Array[] = [];
+    let received = 0;
+    for await (const chunk of this.requiredClient().iterDownload(message, {
+      offset,
+      limit: length,
+      requestSize: 512 * 1024,
+      signal,
+    })) {
+      if (signal.aborted) throw new DOMException("Stream range cancelled", "AbortError");
+      if (received >= length) break;
+      const remaining = length - received;
+      const bytes = Uint8Array.from(chunk.subarray(0, remaining));
+      chunks.push(bytes);
+      received += bytes.byteLength;
+    }
+    const result = new Uint8Array(received);
+    let position = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, position);
+      position += chunk.byteLength;
+    }
+    return result;
+  }
+
+  private async waitForServiceWorkerController() {
+    const current = navigator.serviceWorker.controller;
+    if (current && await this.supportsProgressivePlayback(current)) return current;
+    return new Promise<ServiceWorker | null>((resolve) => {
+      const timer = window.setTimeout(async () => {
+        navigator.serviceWorker.removeEventListener("controllerchange", changed);
+        const controller = navigator.serviceWorker.controller;
+        resolve(controller && await this.supportsProgressivePlayback(controller) ? controller : null);
+      }, 5000);
+      const changed = async () => {
+        const controller = navigator.serviceWorker.controller;
+        if (!controller || !await this.supportsProgressivePlayback(controller)) return;
+        window.clearTimeout(timer);
+        navigator.serviceWorker.removeEventListener("controllerchange", changed);
+        resolve(controller);
+      };
+      navigator.serviceWorker.addEventListener("controllerchange", changed);
+    });
+  }
+
+  private supportsProgressivePlayback(controller: ServiceWorker) {
+    return new Promise<boolean>((resolve) => {
+      const channel = new MessageChannel();
+      const timer = window.setTimeout(() => resolve(false), 750);
+      channel.port1.onmessage = (event) => {
+        window.clearTimeout(timer);
+        resolve(event.data?.type === "telegram-stream-ready");
+      };
+      controller.postMessage({ type: "telegram-stream-ping" }, [channel.port2]);
+    });
   }
 
   async upload(
@@ -342,7 +509,38 @@ export class TelegramDrive {
 
   async delete(channel: CloudChannel, item: CloudItem) {
     await this.requiredClient().deleteMessages(channel.inputEntity, [item.id], { revoke: true });
-    await localStore.deleteThumbnail(`${item.channelId}:${item.id}`);
+    await localStore.deleteThumbnail(thumbnailCacheKey(item.channelId, item.id));
+    this.messageCache.delete(`${channel.id}:${item.id}`);
+  }
+
+  private async getMessage(channel: CloudChannel, id: number) {
+    const key = `${channel.id}:${id}`;
+    const cached = this.messageCache.get(key);
+    if (cached) {
+      this.messageCache.delete(key);
+      this.messageCache.set(key, cached);
+      return cached;
+    }
+    const messages = await withTimeout(
+      this.requiredClient().getMessages(channel.inputEntity, { ids: id }),
+      TELEGRAM_REQUEST_TIMEOUT,
+      "Telegram took too long to open this file. Try again.",
+    );
+    const message = Array.from(messages as any[])[0];
+    if (!message) throw new Error("This file is no longer available in the Telegram channel.");
+    this.rememberMessage(channel.id, id, message);
+    return message;
+  }
+
+  private rememberMessage(channelId: string, id: number, message: any) {
+    const key = `${channelId}:${id}`;
+    this.messageCache.delete(key);
+    this.messageCache.set(key, message);
+    while (this.messageCache.size > 300) {
+      const oldest = this.messageCache.keys().next().value as string | undefined;
+      if (!oldest) break;
+      this.messageCache.delete(oldest);
+    }
   }
 
   private toCloudItem(message: any, channelId: string): CloudItem | undefined {
@@ -370,7 +568,6 @@ export class TelegramDrive {
       // instanceof. Read the concrete media attribute instead.
       duration: duration || undefined,
       date: new Date(timestamp > 10_000_000_000 ? timestamp : timestamp * 1000),
-      message,
     };
   }
 

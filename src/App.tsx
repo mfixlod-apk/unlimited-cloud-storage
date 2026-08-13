@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent, type SyntheticEvent } from "react";
 import QRCode from "qrcode";
 import {
+  CalendarIcon,
   CheckIcon,
   ChevronIcon,
   CloseIcon,
@@ -34,6 +35,7 @@ import {
 
 type Stage = "boot" | "credentials" | "auth" | "channels" | "drive";
 type Filter = "all" | ItemKind;
+type SortOrder = "newest" | "oldest";
 
 interface NativeFileWritable {
   write(chunk: Uint8Array<ArrayBuffer>): Promise<void>;
@@ -79,7 +81,16 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat(undefined, {
   year: date.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
 }).format(date);
 
+const monthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+const formatMonth = (date: Date) => new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(date);
+
 const DIRECT_SAVE_THRESHOLD = 750 * 1024 * 1024;
+const previewLimitMb = (effectiveMemoryMb: number) => {
+  if (effectiveMemoryMb <= 256) return 128;
+  if (effectiveMemoryMb <= 512) return 384;
+  if (effectiveMemoryMb <= 1024) return 768;
+  return Math.min(1536, Math.floor(effectiveMemoryMb * .75));
+};
 
 const userName = (user: any) => [user?.firstName, user?.lastName].filter(Boolean).join(" ") || user?.username || "Telegram user";
 
@@ -90,6 +101,7 @@ export default function App() {
   const [account, setAccount] = useState<any>();
   const [channels, setChannels] = useState<CloudChannel[]>([]);
   const [channel, setChannel] = useState<CloudChannel>();
+  const [showPublicChannels, setShowPublicChannels] = useState(false);
   const [error, setError] = useState("");
 
   const prepareAccount = useCallback(async () => {
@@ -174,11 +186,6 @@ export default function App() {
     return created;
   };
 
-  const createAndChooseChannel = async (title: string) => {
-    const created = await createChannel(title);
-    await chooseChannel(created);
-  };
-
   const refreshChannelList = async () => {
     setChannels(await telegramDrive.listPrivateChannels());
   };
@@ -205,16 +212,18 @@ export default function App() {
   if (stage === "boot") return <LoadingScreen />;
   if (stage === "credentials") return <CredentialsScreen initial={credentials} externalError={error} onContinue={handleCredentials} />;
   if (stage === "auth") return <AuthScreen onComplete={handleAuthenticated} onBack={() => { telegramDrive.disconnect(); setStage("credentials"); }} />;
-  if (stage === "channels") return <ChannelScreen account={account} channels={channels} onChoose={chooseChannel} onCreate={createChannel} onRefresh={refreshChannelList} onBack={logOut} />;
+  if (stage === "channels") return <ChannelScreen account={account} channels={channels} showPublic={showPublicChannels} onShowPublic={setShowPublicChannels} onChoose={chooseChannel} onCreate={createChannel} onRefresh={refreshChannelList} onBack={logOut} />;
   if (!channel) return null;
   return (
     <DriveScreen
       key={channel.id}
       account={account}
       channel={channel}
-      channelCount={channels.length}
+      channels={channels}
+      showPublicChannels={showPublicChannels}
+      onShowPublicChannels={setShowPublicChannels}
+      onSelectChannel={chooseChannel}
       onChangeChannel={() => setStage("channels")}
-      onCreateChannel={createAndChooseChannel}
       onForget={forgetDevice}
       onLogOut={logOut}
     />
@@ -222,7 +231,7 @@ export default function App() {
 }
 
 function Brand() {
-  return <div className="brand"><span className="brand-mark"><CloudIcon /></span><span>Unlimited Cloud Storage</span></div>;
+  return <div className="brand"><span className="brand-mark"><CloudIcon /></span><span>Unlimited Cloud<br />Storage</span></div>;
 }
 
 function LoadingScreen() {
@@ -421,9 +430,11 @@ function AuthScreen({ onComplete, onBack }: { onComplete: () => Promise<void>; o
   );
 }
 
-function ChannelScreen({ account, channels, onChoose, onCreate, onRefresh, onBack }: {
+function ChannelScreen({ account, channels, showPublic, onShowPublic, onChoose, onCreate, onRefresh, onBack }: {
   account: any;
   channels: CloudChannel[];
+  showPublic: boolean;
+  onShowPublic: (value: boolean) => void;
   onChoose: (channel: CloudChannel) => Promise<void>;
   onCreate: (title: string) => Promise<CloudChannel>;
   onRefresh: () => Promise<void>;
@@ -433,6 +444,7 @@ function ChannelScreen({ account, channels, onChoose, onCreate, onRefresh, onBac
   const [showCreate, setShowCreate] = useState(false);
   const [title, setTitle] = useState("Unlimited Cloud Storage");
   const [error, setError] = useState("");
+  const availableChannels = channels.filter((entry) => showPublic || !entry.isPublic);
   const refresh = async () => {
     setBusy(true);
     setError("");
@@ -460,7 +472,8 @@ function ChannelScreen({ account, channels, onChoose, onCreate, onRefresh, onBac
       <section className="channel-card">
         <div className="step-label">Step 3 of 3</div>
         <h2>Choose your storage</h2>
-        <p className="muted">Signed in as <strong>{userName(account)}</strong>. Select one of your private or public broadcast channels. Group chats are excluded.</p>
+        <p className="muted">Signed in as <strong>{userName(account)}</strong>. Private broadcast channels are shown by default. Group chats are excluded.</p>
+        <label className="public-channel-toggle"><span><strong>Show public channels</strong><small>Public uploads may be visible to subscribers</small></span><input type="checkbox" checked={showPublic} onChange={(event) => onShowPublic(event.target.checked)} /></label>
         {error && <div className="error-banner" role="alert">{error}</div>}
         {showCreate && <form className="create-channel-form" onSubmit={create}>
           <label className="field-label">Channel name<input autoFocus maxLength={128} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="My private storage" /></label>
@@ -468,8 +481,8 @@ function ChannelScreen({ account, channels, onChoose, onCreate, onRefresh, onBac
           <div><button type="button" className="text-button" onClick={() => setShowCreate(false)} disabled={busy}>Cancel</button><button className="primary-button" disabled={busy}>{busy ? <><span className="spinner" />Creating…</> : "Create channel"}</button></div>
         </form>}
         <div className="channel-list">
-          {channels.map((entry) => <button key={entry.id} className="channel-option" onClick={() => onChoose(entry)} disabled={!entry.canWrite} title={entry.canWrite ? undefined : "You need permission to post in this channel"}><span className="round-icon small"><FolderIcon /></span><span><strong>{entry.title}</strong><small>{entry.isPublic ? "Public" : "Private"} channel · {entry.canWrite ? "Ready to use" : "Read-only"}</small></span><ChevronIcon /></button>)}
-          {!channels.length && <div className="empty-channels"><FolderIcon /><h3>No channels found</h3><p>Create a broadcast channel in Telegram, then refresh this list.</p></div>}
+          {availableChannels.map((entry) => <button key={entry.id} className="channel-option" onClick={() => onChoose(entry)} disabled={!entry.canWrite} title={entry.canWrite ? undefined : "You need permission to post in this channel"}><span className="round-icon small"><FolderIcon /></span><span><strong>{entry.title}</strong><small>{entry.isPublic ? "Public" : "Private"} channel · {entry.canWrite ? "Ready to use" : "Read-only"}</small></span><ChevronIcon /></button>)}
+          {!availableChannels.length && <div className="empty-channels"><FolderIcon /><h3>No channels found</h3><p>Create a private broadcast channel in Telegram, then refresh this list.</p></div>}
         </div>
         <div className="channel-actions"><button className="secondary-button" onClick={() => { setShowCreate(true); setError(""); }} disabled={busy || showCreate}><PlusIcon />Create new channel</button><button className="secondary-button" onClick={refresh} disabled={busy}><RefreshIcon className={busy ? "spinning" : ""} />Refresh</button></div>
       </section>
@@ -480,18 +493,23 @@ function ChannelScreen({ account, channels, onChoose, onCreate, onRefresh, onBac
 interface UploadEntry { id: string; name: string; progress: number; status: "waiting" | "uploading" | "done" | "error" | "cancelled"; error?: string }
 interface DownloadEntry { name: string; progress: number }
 
-function DriveScreen({ account, channel, channelCount, onChangeChannel, onCreateChannel, onForget, onLogOut }: {
+function DriveScreen({ account, channel, channels, showPublicChannels, onShowPublicChannels, onSelectChannel, onChangeChannel, onForget, onLogOut }: {
   account: any;
   channel: CloudChannel;
-  channelCount: number;
+  channels: CloudChannel[];
+  showPublicChannels: boolean;
+  onShowPublicChannels: (value: boolean) => void;
+  onSelectChannel: (channel: CloudChannel) => Promise<void>;
   onChangeChannel: () => void;
-  onCreateChannel: (title: string) => Promise<void>;
   onForget: () => Promise<void>;
   onLogOut: () => Promise<void>;
 }) {
   const [items, setItems] = useState<CloudItem[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
+  const [groupByMonth, setGroupByMonth] = useState(false);
+  const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
+  const [memoryLimitMb, setMemoryLimitMb] = useState(1024);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -507,33 +525,37 @@ function DriveScreen({ account, channel, channelCount, onChangeChannel, onCreate
   const downloadAbort = useRef<AbortController | undefined>(undefined);
   const sentinel = useRef<HTMLDivElement>(null);
   const offsetRef = useRef(0);
-  const historyRequestRef = useRef(false);
-  const activeChannelIdRef = useRef(channel.id);
-  activeChannelIdRef.current = channel.id;
+  const historyRequestRef = useRef<string | undefined>(undefined);
+  const activeHistoryKeyRef = useRef(`${channel.id}:${sortOrder}`);
+  activeHistoryKeyRef.current = `${channel.id}:${sortOrder}`;
+  const reportedDeviceMemory = Number((navigator as Navigator & { deviceMemory?: number }).deviceMemory);
+  const effectiveMemoryMb = reportedDeviceMemory > 0 ? Math.min(memoryLimitMb, reportedDeviceMemory * 256) : memoryLimitMb;
+  const previewLimitBytes = previewLimitMb(effectiveMemoryMb) * 1024 * 1024;
 
   const load = useCallback(async (reset = false) => {
-    if (historyRequestRef.current) return;
-    historyRequestRef.current = true;
+    const requestedKey = `${channel.id}:${sortOrder}`;
+    if (historyRequestRef.current === requestedKey) return;
+    historyRequestRef.current = requestedKey;
     const requestedChannel = channel;
     const requestedOffset = reset ? 0 : offsetRef.current;
     reset ? setLoading(true) : setLoadingMore(true);
     setError("");
     try {
-      const page = await telegramDrive.getHistory(requestedChannel, requestedOffset);
-      if (activeChannelIdRef.current !== requestedChannel.id) return;
+      const page = await telegramDrive.getHistory(requestedChannel, requestedOffset, 100, sortOrder === "oldest");
+      if (activeHistoryKeyRef.current !== requestedKey) return;
       setItems((current) => reset ? page.items : [...current, ...page.items.filter((item) => !current.some((old) => old.id === item.id))]);
       offsetRef.current = page.nextOffset;
       setHasMore(page.hasMore);
     } catch (cause) {
-      if (activeChannelIdRef.current === requestedChannel.id) setError(friendlyError(cause));
+      if (activeHistoryKeyRef.current === requestedKey) setError(friendlyError(cause));
     } finally {
-      historyRequestRef.current = false;
-      if (activeChannelIdRef.current === requestedChannel.id) {
+      if (historyRequestRef.current === requestedKey) historyRequestRef.current = undefined;
+      if (activeHistoryKeyRef.current === requestedKey) {
         setLoading(false);
         setLoadingMore(false);
       }
     }
-  }, [channel]);
+  }, [channel, sortOrder]);
 
   useEffect(() => {
     setItems([]);
@@ -541,6 +563,7 @@ function DriveScreen({ account, channel, channelCount, onChangeChannel, onCreate
     setHasMore(true);
     void load(true);
   }, [channel.id, load]);
+  useEffect(() => { void localStore.getMemoryLimitMb().then(setMemoryLimitMb); }, []);
   useEffect(() => {
     const onOnline = () => setOnline(true);
     const onOffline = () => setOnline(false);
@@ -552,11 +575,17 @@ function DriveScreen({ account, channel, channelCount, onChangeChannel, onCreate
     const target = sentinel.current;
     if (!target) return;
     const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting && hasMore && !loading && !loadingMore) void load(false);
+      if (entry.isIntersecting && hasMore && !loading && !loadingMore && !selected) void load(false);
     }, { rootMargin: "300px" });
     observer.observe(target);
     return () => observer.disconnect();
-  }, [hasMore, load, loading, loadingMore]);
+  }, [hasMore, load, loading, loadingMore, selected]);
+
+  // A search scans every remaining history page. Each result kept in React is
+  // lightweight metadata; full Teleproto messages are fetched only on demand.
+  useEffect(() => {
+    if (search.trim() && hasMore && !loading && !loadingMore && !selected) void load(false);
+  }, [hasMore, load, loading, loadingMore, search, selected]);
 
   const visibleItems = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
@@ -625,14 +654,14 @@ function DriveScreen({ account, channel, channelCount, onChangeChannel, onCreate
       if (fileHandle) {
         const writable = await fileHandle.createWritable();
         try {
-          await telegramDrive.downloadTo(item, (chunk) => writable.write(chunk), progress, controller.signal);
+          await telegramDrive.downloadTo(channel, item, (chunk) => writable.write(chunk), progress, controller.signal);
           await writable.close();
         } catch (cause) {
           try { await writable.abort(cause); } catch { /* The stream may already be closed. */ }
           throw cause;
         }
       } else {
-        const blob = await telegramDrive.download(item, progress, controller.signal);
+        const blob = await telegramDrive.download(channel, item, progress, controller.signal);
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement("a");
         anchor.href = url;
@@ -676,50 +705,163 @@ function DriveScreen({ account, channel, channelCount, onChangeChannel, onCreate
     <div className="app-shell" onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}>
       <aside className="sidebar">
         <Brand />
-        <nav>{tabs.map(({ value, label, icon: TabIcon }) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}><TabIcon />{label}<span>{value === "all" ? items.length : items.filter((item) => item.kind === value).length}</span></button>)}</nav>
+        <ChannelSwitcher channel={channel} channels={channels} showPublic={showPublicChannels} onShowPublic={onShowPublicChannels} onSelect={onSelectChannel} onManage={onChangeChannel} />
+        <nav>{tabs.map(({ value, label, icon: TabIcon }) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}><TabIcon />{label}<span>{value === "all" ? `${items.length}${hasMore ? "+" : ""}` : items.filter((item) => item.kind === value).length}</span></button>)}</nav>
         <div className="sidebar-foot"><button onClick={() => setSettings(true)}><SettingsIcon />Settings</button><div className="account-chip"><span>{userName(account).slice(0, 1).toUpperCase()}</span><div><strong>{userName(account)}</strong><small><i className={online ? "online" : ""} />{online ? "Connected" : "Offline"}</small></div></div></div>
       </aside>
       <main className="drive-main">
         <header className="drive-header">
           <div><p className="mobile-brand"><CloudIcon />Unlimited Cloud Storage</p><h1>{tabs.find((tab) => tab.value === filter)?.label}</h1><p>{channel.title} <span>·</span> {visibleItems.length} {visibleItems.length === 1 ? "item" : "items"}</p></div>
-          <div className="header-actions"><label className="search-box"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label><button className="primary-button" onClick={() => fileInput.current?.click()}><UploadIcon />Upload</button><button className="mobile-settings" onClick={() => setSettings(true)} aria-label="Open settings"><SettingsIcon /></button><input ref={fileInput} type="file" multiple hidden onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void handleFiles(event.target.files); event.target.value = ""; }} /></div>
+          <div className="header-actions"><button className={`secondary-button month-toggle ${groupByMonth ? "active" : ""}`} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth} aria-label="Group files by month" title="Group files by month"><CalendarIcon /><span>{groupByMonth ? "Grouped" : "Group by month"}</span></button><button className="secondary-button sort-toggle" aria-label={`Order: ${sortOrder === "newest" ? "newest first" : "oldest first"}`} title={sortOrder === "newest" ? "Newest first" : "Oldest first"} onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon /><span>{sortOrder === "newest" ? "Newest first" : "Oldest first"}</span></button><label className="search-box"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label><button className="primary-button" onClick={() => fileInput.current?.click()}><UploadIcon />Upload</button><button className="mobile-settings" onClick={() => setSettings(true)} aria-label="Open settings"><SettingsIcon /></button><input ref={fileInput} type="file" multiple hidden onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void handleFiles(event.target.files); event.target.value = ""; }} /></div>
         </header>
+        <div className="mobile-channel-control"><ChannelSwitcher channel={channel} channels={channels} showPublic={showPublicChannels} onShowPublic={onShowPublicChannels} onSelect={onSelectChannel} onManage={onChangeChannel} /></div>
         <div className="mobile-tabs">{tabs.slice(0, 4).map(({ value, label }) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div>
         {error && <div className="error-banner drive-error" role="alert"><span>{error}</span><button onClick={() => setError("")}><CloseIcon /></button></div>}
         {loading ? <GallerySkeleton /> : visibleItems.length ? (
-          <section className="gallery" aria-live="polite">{visibleItems.map((item) => <MediaCard key={item.id} item={item} onOpen={() => setSelected(item)} onDownload={() => void downloadItem(item)} onDelete={() => void deleteItem(item)} />)}</section>
+          <MemoryGallery items={visibleItems} channel={channel} groupByMonth={groupByMonth} memoryLimitMb={effectiveMemoryMb} hasMore={hasMore} paused={Boolean(selected)} onOpen={setSelected} onDownload={downloadItem} onDelete={deleteItem} />
         ) : <EmptyState hasItems={items.length > 0} onUpload={() => fileInput.current?.click()} />}
-        <div ref={sentinel} className="scroll-sentinel">{loadingMore && <><span className="spinner" />Loading older files…</>}{!hasMore && items.length > 0 && <span>You've reached the beginning.</span>}</div>
+        <div ref={sentinel} className="scroll-sentinel">{loadingMore && <><span className="spinner" />{search.trim() ? "Searching older files…" : "Loading older files…"}</>}{!hasMore && items.length > 0 && <span>You've reached the beginning.</span>}</div>
       </main>
       {dragging && <div className="drop-overlay" onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={onDrop}><div><UploadIcon /><h2>Drop to upload</h2><p>Files go directly to {channel.title}</p></div></div>}
       {uploads.length > 0 && <UploadPanel entries={uploads} onCancel={() => uploadAbort.current?.abort()} onDismiss={() => setUploads([])} />}
       {downloadEntry && <DownloadPanel entry={downloadEntry} onCancel={() => downloadAbort.current?.abort()} />}
-      {selected && <Viewer key={selected.id} item={selected} onClose={() => setSelected(undefined)} onPrevious={previousItem ? () => setSelected(previousItem) : undefined} onNext={nextItem ? () => setSelected(nextItem) : undefined} onDownload={() => void downloadItem(selected)} onDelete={() => void deleteItem(selected)} />}
-      {settings && <SettingsPanel account={account} channel={channel} channelCount={channelCount} onClose={() => setSettings(false)} onChangeChannel={onChangeChannel} onCreateChannel={onCreateChannel} onForget={onForget} onLogOut={onLogOut} />}
+      {selected && <Viewer key={selected.id} channel={channel} item={selected} previewLimitBytes={previewLimitBytes} onClose={() => setSelected(undefined)} onPrevious={previousItem ? () => setSelected(previousItem) : undefined} onNext={nextItem ? () => setSelected(nextItem) : undefined} onDownload={() => void downloadItem(selected)} onDelete={() => void deleteItem(selected)} />}
+      {settings && <SettingsPanel account={account} memoryLimitMb={memoryLimitMb} effectiveMemoryMb={effectiveMemoryMb} onMemoryLimit={async (value) => { setMemoryLimitMb(value); await localStore.saveMemoryLimitMb(value); }} onClose={() => setSettings(false)} onForget={onForget} onLogOut={onLogOut} />}
     </div>
   );
 }
 
-function Thumbnail({ item }: { item: CloudItem }) {
+function ChannelSwitcher({ channel, channels, showPublic, onShowPublic, onSelect, onManage }: {
+  channel: CloudChannel;
+  channels: CloudChannel[];
+  showPublic: boolean;
+  onShowPublic: (value: boolean) => void;
+  onSelect: (channel: CloudChannel) => Promise<void>;
+  onManage: () => void;
+}) {
+  const availableChannels = channels.filter((entry) => showPublic || !entry.isPublic || entry.id === channel.id);
+  const details = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const close = (event: MouseEvent) => {
+      if (details.current && !details.current.contains(event.target as Node)) details.current.removeAttribute("open");
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, []);
+  const select = (next: CloudChannel) => {
+    details.current?.removeAttribute("open");
+    if (next.id !== channel.id) void onSelect(next);
+  };
+  return <div className="channel-switcher"><span>Storage channel</span><details className="channel-select" ref={details}><summary aria-label="Switch storage channel"><FolderIcon /><strong title={channel.title}>{channel.title}</strong><ChevronIcon /></summary><div className="channel-dropdown">{availableChannels.map((entry) => <button key={entry.id} onClick={() => select(entry)} disabled={!entry.canWrite} className={entry.id === channel.id ? "selected" : ""}><span><strong>{entry.title}</strong><small>{entry.isPublic ? "Public" : "Private"}{entry.canWrite ? "" : " · Read-only"}</small></span>{entry.id === channel.id && <CheckIcon />}</button>)}<label className="dropdown-public-toggle"><span><strong>Show public</strong><small>May be visible to subscribers</small></span><input type="checkbox" checked={showPublic} onChange={(event) => onShowPublic(event.target.checked)} /></label></div></details><button className="channel-manage" onClick={onManage}>Manage channels</button></div>;
+}
+
+function MemoryGallery({ items, channel, groupByMonth, memoryLimitMb, hasMore, paused, onOpen, onDownload, onDelete }: {
+  items: CloudItem[];
+  channel: CloudChannel;
+  groupByMonth: boolean;
+  memoryLimitMb: number;
+  hasMore: boolean;
+  paused: boolean;
+  onOpen: (item: CloudItem) => void;
+  onDownload: (item: CloudItem) => Promise<void>;
+  onDelete: (item: CloudItem) => Promise<void>;
+}) {
+  const [layout, setLayout] = useState(() => ({ columns: estimateColumns(), rowHeight: estimateRowHeight() }));
+  useEffect(() => {
+    const resize = () => setLayout({ columns: estimateColumns(), rowHeight: estimateRowHeight() });
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
+  const targetChunkSize = Math.max(40, Math.min(120, Math.floor(memoryLimitMb / 8)));
+  const rowsPerChunk = Math.max(6, Math.floor(targetChunkSize / layout.columns));
+  const chunkSize = rowsPerChunk * layout.columns;
+  const prefetchPx = Math.max(500, Math.min(2400, memoryLimitMb * 2));
+  const groups = useMemo(() => {
+    if (!groupByMonth) return [{ key: "all", label: "", items }];
+    const grouped = new Map<string, { label: string; items: CloudItem[] }>();
+    for (const item of items) {
+      const key = monthKey(item.date);
+      const current = grouped.get(key) || { label: formatMonth(item.date), items: [] };
+      current.items.push(item);
+      grouped.set(key, current);
+    }
+    return Array.from(grouped, ([key, value]) => ({ key, ...value }));
+  }, [groupByMonth, items]);
+  let chunkIndex = 0;
+  return <div className={groupByMonth ? "month-groups" : "gallery-groups"} aria-live="polite">{groups.map((group, groupIndex) => {
+    const chunkCount = Math.ceil(group.items.length / chunkSize);
+    return <section className="month-group" key={group.key}>{group.label && <h2><span>{group.label}</span><small>{group.items.length} {group.items.length === 1 ? "file" : "files"}</small></h2>}<div className="gallery-chunks">{Array.from({ length: chunkCount }, (_, index) => {
+      const chunk = group.items.slice(index * chunkSize, (index + 1) * chunkSize);
+      const currentIndex = chunkIndex++;
+      const isLastChunk = groupIndex === groups.length - 1 && index === chunkCount - 1;
+      const placeholderCount = hasMore && isLastChunk ? (layout.columns - chunk.length % layout.columns) % layout.columns : 0;
+      const estimatedHeight = Math.ceil((chunk.length + placeholderCount) / layout.columns) * layout.rowHeight;
+      return <VirtualGalleryChunk key={`${group.key}:${index}`} items={chunk} channel={channel} paused={paused} placeholderCount={placeholderCount} initiallyActive={currentIndex < 2} estimatedHeight={estimatedHeight} prefetchPx={prefetchPx} onOpen={onOpen} onDownload={onDownload} onDelete={onDelete} />;
+    })}</div></section>;
+  })}</div>;
+}
+
+const estimateColumns = () => {
+  const width = window.innerWidth;
+  if (width <= 580) return 2;
+  const contentWidth = width <= 900 ? width - 40 : width - 230 - Math.max(50, width * .08);
+  return Math.max(1, Math.floor((contentWidth + 20) / 210));
+};
+const estimateRowHeight = () => window.innerWidth <= 580 ? 190 : 230;
+
+function VirtualGalleryChunk({ items, channel, paused, placeholderCount, initiallyActive, estimatedHeight, prefetchPx, onOpen, onDownload, onDelete }: {
+  items: CloudItem[];
+  channel: CloudChannel;
+  paused: boolean;
+  placeholderCount: number;
+  initiallyActive: boolean;
+  estimatedHeight: number;
+  prefetchPx: number;
+  onOpen: (item: CloudItem) => void;
+  onDownload: (item: CloudItem) => Promise<void>;
+  onDelete: (item: CloudItem) => Promise<void>;
+}) {
+  const [active, setActive] = useState(initiallyActive);
+  const [measuredHeight, setMeasuredHeight] = useState(0);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => setMeasuredHeight(0), [estimatedHeight, items.length]);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting && element.childElementCount) setMeasuredHeight(element.getBoundingClientRect().height);
+      setActive(entry.isIntersecting);
+    }, { rootMargin: `${prefetchPx}px 0px` });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [prefetchPx]);
+  return <div ref={ref} className={`gallery virtual-chunk ${active ? "active" : "parked"}`} style={active ? undefined : { minHeight: `${measuredHeight || estimatedHeight}px` }}>{active && <>{items.map((item) => <MediaCard key={item.id} channel={channel} item={item} pauseThumbnail={paused} onOpen={() => onOpen(item)} onDownload={() => void onDownload(item)} onDelete={() => void onDelete(item)} />)}{Array.from({ length: placeholderCount }, (_, index) => <div className="memory-slot" aria-hidden="true" key={`slot:${index}`}><span /><i /><i /></div>)}</>}</div>;
+}
+
+function Thumbnail({ channel, item, paused }: { channel: CloudChannel; item: CloudItem; paused: boolean }) {
   const [url, setUrl] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
+    if (paused) { setUrl(""); setLoaded(false); return; }
     let active = true;
     let objectUrl = "";
-    telegramDrive.getThumbnail(item).then((blob) => {
+    const controller = new AbortController();
+    telegramDrive.getThumbnail(channel, item, controller.signal, retry > 0).then((blob) => {
       if (active && blob) { objectUrl = URL.createObjectURL(blob); setUrl(objectUrl); }
       if (active) setLoaded(true);
     }).catch(() => { if (active) setLoaded(true); });
-    return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [item]);
+    return () => { active = false; controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [channel, item.id, paused, retry]);
   const Placeholder = item.kind === "video" ? VideoIcon : item.kind === "audio" ? MusicIcon : item.kind === "image" ? ImageIcon : FileIcon;
-  return <div className={`thumbnail ${loaded ? "loaded" : ""}`}>{url ? <img src={url} alt="" loading="lazy" /> : <Placeholder />}{item.kind === "video" && <span className="play-badge">▶</span>}</div>;
+  const failed = () => { setUrl(""); if (retry < 1) { setLoaded(false); setRetry(1); } else setLoaded(true); };
+  return <div className={`thumbnail ${loaded ? "loaded" : ""}`}>{url ? <img src={url} alt="" loading="lazy" onError={failed} /> : <Placeholder />}{item.kind === "video" && <span className="play-badge">▶</span>}</div>;
 }
 
-function MediaCard({ item, onOpen, onDownload, onDelete }: { item: CloudItem; onOpen: () => void; onDownload: () => void; onDelete: () => void }) {
+function MediaCard({ channel, item, pauseThumbnail, onOpen, onDownload, onDelete }: { channel: CloudChannel; item: CloudItem; pauseThumbnail: boolean; onOpen: () => void; onDownload: () => void; onDelete: () => void }) {
   const [menu, setMenu] = useState(false);
   return <article className={`media-card ${item.kind === "file" || item.kind === "audio" ? "document-card" : ""}`}>
-    <button className="media-open" onClick={onOpen}><Thumbnail item={item} /><span className="media-info"><strong title={item.name}>{item.name}</strong><small>{formatDate(item.date)} · {formatSize(item.size)}</small></span></button>
+    <button className="media-open" onClick={onOpen}><Thumbnail channel={channel} item={item} paused={pauseThumbnail} /><span className="media-info"><strong title={item.name}>{item.name}</strong><small>{formatDate(item.date)} · {formatSize(item.size)}</small></span></button>
     <button className="card-menu" aria-label={`Actions for ${item.name}`} onClick={() => setMenu((value) => !value)}><MoreIcon /></button>
     {menu && <div className="action-menu" onMouseLeave={() => setMenu(false)}><button onClick={() => { setMenu(false); onDownload(); }}><DownloadIcon />Download</button><button className="danger" onClick={() => { setMenu(false); onDelete(); }}><TrashIcon />Delete</button></div>}
   </article>;
@@ -744,20 +886,58 @@ function DownloadPanel({ entry, onCancel }: { entry: DownloadEntry; onCancel: ()
   return <aside className="download-panel" aria-live="polite"><DownloadIcon /><div><strong title={entry.name}>{entry.name}</strong><small>Downloading… {Math.round(entry.progress * 100)}%</small><progress className="progress" max={1} value={entry.progress} /></div><button onClick={onCancel} aria-label="Cancel download"><CloseIcon /></button></aside>;
 }
 
-function Viewer({ item, onClose, onPrevious, onNext, onDownload, onDelete }: { item: CloudItem; onClose: () => void; onPrevious?: () => void; onNext?: () => void; onDownload: () => void; onDelete: () => void }) {
+function Viewer({ channel, item, previewLimitBytes, onClose, onPrevious, onNext, onDownload, onDelete }: { channel: CloudChannel; item: CloudItem; previewLimitBytes: number; onClose: () => void; onPrevious?: () => void; onNext?: () => void; onDownload: () => void; onDelete: () => void }) {
   const [url, setUrl] = useState("");
+  const [streamUrl, setStreamUrl] = useState("");
+  const [progressiveFailed, setProgressiveFailed] = useState(false);
+  const [streamPlaybackFailed, setStreamPlaybackFailed] = useState(false);
+  const [posterUrl, setPosterUrl] = useState("");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
+  const streamEverOpened = useRef(false);
+  const progressiveCandidate = item.kind === "video" || item.kind === "audio";
+  useEffect(() => {
+    if (item.kind !== "image" && item.kind !== "video") return;
+    let active = true;
+    let objectUrl = "";
+    void telegramDrive.getCachedThumbnail(item).then((blob) => {
+      if (active && blob?.size) { objectUrl = URL.createObjectURL(blob); setPosterUrl(objectUrl); }
+    });
+    return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [item]);
+  useEffect(() => {
+    if (!progressiveCandidate || progressiveFailed || streamPlaybackFailed) return;
+    let active = true;
+    let close: () => void = () => {};
+    void telegramDrive.openProgressiveStream(channel, item).then((stream) => {
+      close = stream.close;
+      if (active) {
+        streamEverOpened.current = true;
+        setStreamUrl(stream.url);
+      }
+      else stream.close();
+    }).catch(() => {
+      if (!active) return;
+      if (streamEverOpened.current) {
+        setStreamPlaybackFailed(true);
+        setError("Progressive playback could not restart. Download the original file or close and try again.");
+      } else {
+        setProgressiveFailed(true);
+      }
+    });
+    return () => { active = false; close(); };
+  }, [channel, item, progressiveCandidate, progressiveFailed, streamPlaybackFailed]);
   useEffect(() => {
     if (item.kind !== "image" && item.kind !== "video" && item.kind !== "audio") return;
-    if (item.size > 750 * 1024 * 1024) return;
+    if (progressiveCandidate && !progressiveFailed) return;
+    if (item.size > previewLimitBytes) return;
     const controller = new AbortController();
     let objectUrl = "";
-    telegramDrive.download(item, setProgress, controller.signal).then((blob) => {
+    telegramDrive.download(channel, item, setProgress, controller.signal).then((blob) => {
       if (blob && !controller.signal.aborted) { objectUrl = URL.createObjectURL(blob); setUrl(objectUrl); }
     }).catch((cause) => { if (!controller.signal.aborted) setError(friendlyError(cause)); });
     return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [item]);
+  }, [channel, item, previewLimitBytes, progressiveCandidate, progressiveFailed]);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -767,55 +947,61 @@ function Viewer({ item, onClose, onPrevious, onNext, onDownload, onDelete }: { i
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose, onNext, onPrevious]);
-  const previewFailed = () => setError("This browser cannot decode this media format. The original file is still available to download.");
-  return <div className="modal-backdrop viewer-backdrop" role="dialog" aria-modal="true" aria-label={item.name} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="viewer"><header><div><strong>{item.name}</strong><small>{formatSize(item.size)} · {formatDate(item.date)}</small></div><div><button onClick={onDownload} title="Download"><DownloadIcon /></button><button className="danger" onClick={onDelete} title="Delete"><TrashIcon /></button><button onClick={onClose} title="Close"><CloseIcon /></button></div></header><div className="viewer-content"><button className="viewer-nav previous" onClick={onPrevious} disabled={!onPrevious} aria-label="Previous file"><ChevronIcon /></button>{error ? <div className="viewer-message"><FileIcon /><p>{error}</p><button className="primary-button" onClick={onDownload}><DownloadIcon />Download original</button></div> : url ? item.kind === "image" ? <img src={url} alt={item.name} onError={previewFailed} /> : item.kind === "video" ? <video src={url} controls autoPlay playsInline onError={previewFailed} /> : <audio src={url} controls autoPlay onError={previewFailed} /> : <div className="viewer-message">{item.size > 750 * 1024 * 1024 ? <><VideoIcon /><p>This file is too large to preview safely in memory. Download it to view.</p><button className="primary-button" onClick={onDownload}><DownloadIcon />Download</button></> : item.kind === "file" ? <><FileIcon /><p>Preview is not available for this file type.</p><button className="primary-button" onClick={onDownload}><DownloadIcon />Download</button></> : <><span className="spinner large" /><p>Loading preview… {progress ? `${Math.round(progress * 100)}%` : ""}</p></>}</div>}<button className="viewer-nav next" onClick={onNext} disabled={!onNext} aria-label="Next file"><ChevronIcon /></button></div></div></div>;
+  const previewFailed = () => {
+    if (streamUrl && !progressiveFailed) {
+      setStreamUrl("");
+      setStreamPlaybackFailed(true);
+      setError("Progressive playback was interrupted. Retry the stream or download the original file.");
+      return;
+    }
+    setError("This browser cannot decode this media format. The original file is still available to download.");
+  };
+  const retryStream = () => {
+    setError("");
+    setProgress(0);
+    setStreamPlaybackFailed(false);
+  };
+  const mediaUrl = streamUrl || url;
+  return <div className="modal-backdrop viewer-backdrop" role="dialog" aria-modal="true" aria-label={item.name} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="viewer"><header><div><strong>{item.name}</strong><small>{formatSize(item.size)} · {formatDate(item.date)}</small></div><div><button onClick={onDownload} title="Download"><DownloadIcon /></button><button className="danger" onClick={onDelete} title="Delete"><TrashIcon /></button><button onClick={onClose} title="Close"><CloseIcon /></button></div></header><div className="viewer-content"><button className="viewer-nav previous" onClick={onPrevious} disabled={!onPrevious} aria-label="Previous file"><ChevronIcon /></button>{error ? <div className="viewer-message"><FileIcon /><p>{error}</p><div className="viewer-message-actions">{streamPlaybackFailed && <button className="secondary-button" onClick={retryStream}><RefreshIcon />Retry stream</button>}<button className="primary-button" onClick={onDownload}><DownloadIcon />Download original</button></div></div> : mediaUrl && (item.kind === "video" || item.kind === "audio") ? <ProgressivePlayer kind={item.kind} src={mediaUrl} poster={posterUrl} streaming={Boolean(streamUrl)} onError={previewFailed} /> : mediaUrl && item.kind === "image" ? <img src={mediaUrl} alt={item.name} onError={previewFailed} /> : <div className="viewer-message">{(!progressiveCandidate || progressiveFailed) && item.size > previewLimitBytes ? <><VideoIcon /><p>This file exceeds the current preview memory limit. Download it to view, or raise the limit in Settings.</p><button className="primary-button" onClick={onDownload}><DownloadIcon />Download</button></> : item.kind === "file" ? <><FileIcon /><p>Preview is not available for this file type.</p><button className="primary-button" onClick={onDownload}><DownloadIcon />Download</button></> : posterUrl ? <div className="viewer-loading-preview"><img src={posterUrl} alt="" onError={() => setPosterUrl("")} /><span><i className="spinner" />{progressiveCandidate && !progressiveFailed ? "Preparing stream…" : <>Loading original… {progress ? `${Math.round(progress * 100)}%` : ""}</>}</span></div> : <><span className="spinner large" /><p>{progressiveCandidate && !progressiveFailed ? "Preparing progressive playback…" : <>Loading preview… {progress ? `${Math.round(progress * 100)}%` : ""}</>}</p></>}</div>}<button className="viewer-nav next" onClick={onNext} disabled={!onNext} aria-label="Next file"><ChevronIcon /></button></div></div></div>;
 }
 
-function SettingsPanel({ account, channel, channelCount, onClose, onChangeChannel, onCreateChannel, onForget, onLogOut }: {
+function ProgressivePlayer({ kind, src, poster, streaming, onError }: { kind: "video" | "audio"; src: string; poster: string; streaming: boolean; onError: () => void }) {
+  const [buffered, setBuffered] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const updateBuffer = (media: HTMLMediaElement) => {
+    const nextDuration = Number.isFinite(media.duration) ? media.duration : 0;
+    setDuration(nextDuration);
+    if (!media.buffered.length) return setBuffered(0);
+    let end = media.buffered.end(media.buffered.length - 1);
+    for (let index = 0; index < media.buffered.length; index += 1) {
+      if (media.currentTime >= media.buffered.start(index) && media.currentTime <= media.buffered.end(index)) {
+        end = media.buffered.end(index);
+        break;
+      }
+    }
+    setBuffered(end);
+  };
+  const trackBuffer = (event: SyntheticEvent<HTMLMediaElement>) => updateBuffer(event.currentTarget);
+  const common = { src, controls: true, autoPlay: true, preload: "metadata" as const, onError, onProgress: trackBuffer, onDurationChange: trackBuffer, onTimeUpdate: trackBuffer };
+  return <div className={`progressive-player ${kind}`}>{kind === "video" ? <video {...common} poster={poster || undefined} playsInline /> : <audio {...common} />}{streaming && <div className="stream-buffer" aria-label="Streaming buffer"><span>Buffered</span><progress max={duration || 1} value={Math.min(buffered, duration || buffered)} /><small>{duration > 0 ? `${Math.round(buffered)}s` : "Connecting…"}</small></div>}</div>;
+}
+
+function SettingsPanel({ account, memoryLimitMb, effectiveMemoryMb, onMemoryLimit, onClose, onForget, onLogOut }: {
   account: any;
-  channel: CloudChannel;
-  channelCount: number;
+  memoryLimitMb: number;
+  effectiveMemoryMb: number;
+  onMemoryLimit: (value: number) => Promise<void>;
   onClose: () => void;
-  onChangeChannel: () => void;
-  onCreateChannel: (title: string) => Promise<void>;
   onForget: () => Promise<void>;
   onLogOut: () => Promise<void>;
 }) {
   const [cleared, setCleared] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [channelTitle, setChannelTitle] = useState("Unlimited Cloud Storage");
-  const [channelError, setChannelError] = useState("");
   const clearCache = async () => { await localStore.clearThumbnails(); setCleared(true); };
-  const createChannel = async (event: FormEvent) => {
-    event.preventDefault();
-    const title = channelTitle.trim();
-    if (!title) return setChannelError("Enter a name for the storage channel.");
-    setCreating(true);
-    setChannelError("");
-    try {
-      await onCreateChannel(title);
-      onClose();
-    } catch (cause) {
-      setChannelError(friendlyError(cause));
-      setCreating(false);
-    }
-  };
   return <div className="modal-backdrop settings-backdrop" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <aside className="settings-panel">
       <header><div><span className="eyebrow">Preferences</span><h2>Settings</h2></div><button onClick={onClose}><CloseIcon /></button></header>
       <section><h3>Account</h3><div className="settings-row"><span className="avatar">{userName(account).slice(0, 1).toUpperCase()}</span><div><strong>{userName(account)}</strong><small>Telegram account</small></div></div></section>
-      <section>
-        <h3>Storage channel</h3>
-        <button className="settings-action" onClick={() => { onClose(); onChangeChannel(); }}><FolderIcon /><span><strong>{channel.title}</strong><small>Choose from {channelCount} {channelCount === 1 ? "channel" : "channels"}</small></span><ChevronIcon /></button>
-        <details className="settings-create-channel">
-          <summary><PlusIcon /><span><strong>Create new channel</strong><small>Create and switch to private storage</small></span><ChevronIcon /></summary>
-          <form onSubmit={createChannel}>
-            {channelError && <div className="error-banner" role="alert">{channelError}</div>}
-            <label className="field-label">Channel name<input maxLength={128} value={channelTitle} onChange={(event) => setChannelTitle(event.target.value)} /></label>
-            <button className="primary-button wide" disabled={creating}>{creating ? <><span className="spinner" />Creating…</> : "Create and use channel"}</button>
-          </form>
-        </details>
-      </section>
+      <section><h3>Performance</h3><label className="memory-setting"><span><strong>Memory limit</strong><small>Controls off-screen gallery preloading and full-file preview fallback.</small></span><select value={memoryLimitMb} onChange={(event) => void onMemoryLimit(Number(event.target.value))}><option value={256}>256 MB</option><option value={512}>512 MB</option><option value={1024}>1 GB (default)</option><option value={2048}>2 GB</option></select><em>{effectiveMemoryMb < memoryLimitMb ? `Adjusted to ${formatSize(effectiveMemoryMb * 1024 * 1024)} for this device.` : "The browser may use less when content is off screen."}</em></label></section>
       <section><h3>Privacy & device</h3><div className="security-box"><ShieldIcon /><p><strong>Browser-only connection</strong>Credentials and session data stay in IndexedDB on this browser profile. Files are not end-to-end encrypted by this app.</p></div><button className="settings-action" onClick={clearCache}><RefreshIcon /><span><strong>{cleared ? "Thumbnail cache cleared" : "Clear thumbnail cache"}</strong><small>Original files remain in Telegram</small></span>{cleared && <CheckIcon />}</button><button className="settings-action" onClick={() => void onForget()}><CloseIcon /><span><strong>Forget this browser</strong><small>Remove local credentials, session, and cache only</small></span></button></section>
       <section className="danger-zone"><button onClick={() => void onLogOut()}><TrashIcon />Log out of Telegram</button><small>This revokes this app's Telegram session and clears local data.</small></section>
       <footer>Unlimited Cloud Storage is independent and is not affiliated with Telegram.</footer>

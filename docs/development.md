@@ -23,7 +23,7 @@ npm run preview
 npm audit --omit=dev
 ```
 
-The service worker registers only when `import.meta.env.PROD` is true. Use `npm run preview` when testing installation, offline shell behavior, cache upgrades, or GitHub Pages paths.
+The service worker registers in development and production because progressive video/audio uses its same-origin byte-range bridge. A worker registered with the development query flag skips all application-shell caching. Use `npm run preview` when testing installation, offline shell behavior, cache upgrades, or GitHub Pages paths.
 
 The Vite dev server also applies a development-only CSP transform that permits inline styles for CSS hot replacement. Production keeps `style-src 'self'` and does not include that relaxation.
 
@@ -55,9 +55,9 @@ Generated `dist/`, `node_modules/`, TypeScript build information, and emitted Vi
 
 - Put Telegram behavior in `TelegramDrive`, not React components.
 - Put IndexedDB operations in `localStore`, not `TelegramDrive` consumers.
-- Keep raw Teleproto messages inside the `CloudItem.message` boundary until types can be narrowed safely.
+- Keep raw Teleproto messages behind `TelegramDrive`; `CloudItem` intentionally contains only lightweight serializable metadata.
 - Keep user-visible state and prompts in React.
-- Keep the service worker independent of authentication and Telegram.
+- Keep credentials and the Telegram client out of the service worker. Its media bridge may request bounded bytes from the owning page only through a one-use-in-memory token.
 - Reuse the local SVG icon system rather than adding a large component dependency for a few icons.
 
 ## Common change recipes
@@ -134,13 +134,20 @@ There is currently no automated Telegram integration suite because it would requ
 ### Channels and history
 
 - private and public broadcast channels are listed, with public channels labeled and confirmed before use;
+- public channels are hidden by default and can be toggled from the chooser/sidebar;
 - a newly created channel appears after refresh;
 - channel creation in the app selects the new private broadcast channel;
-- channel creation is available from both onboarding and Settings;
+- channel creation is available from the channel chooser;
 - saved channel restoration;
 - mixed photo, video, audio, document, text, and service messages;
 - multiple history pages without duplicates or gaps;
 - empty channel and empty search states.
+- month grouping across year boundaries;
+- switching between newest-first and true Telegram oldest-first pagination;
+- `+` remains on the discovered-file count until history reaches the beginning;
+- active search scans to the beginning and finds names outside the initially loaded pages;
+- off-screen gallery chunks unmount without visible scroll jumps when returning upward;
+- gallery chunk boundaries stay aligned to desktop/mobile column counts and loading placeholders fill only the incomplete tail row;
 
 ### Transfers
 
@@ -148,10 +155,18 @@ There is currently no automated Telegram integration suite because it would requ
 - drag-and-drop upload;
 - upload cancellation and retry after cancellation;
 - image/video/audio preview;
+- progressive video/audio startup before the full file downloads, forward/backward seeking, and the visible buffered-range bar;
+- repeated long-distance seeks cancel superseded Telegram ranges and do not begin a full-file Blob load;
+- MP4 playback where metadata is at the end of the file (suffix-range path);
+- closing/changing a progressive preview expires its URL and does not create a Cache Storage entry;
+- bridge initialization failure falls back to a Blob within the memory ceiling, while runtime playback failure offers stream retry/download without a silent full-file load;
+- opening a preview during rapid scrolling pauses thumbnail work and displays its cached poster while loading;
+- invalid thumbnail cache entries retry once at a larger Telegram size and then fall back cleanly to an icon;
 - viewer `ArrowLeft`, `ArrowRight`, visible previous/next controls, and `Escape`;
 - generic-file download;
 - native save-file streaming plus the Blob download fallback;
 - large preview guard and large-download warning;
+- 256 MB, 512 MB, 1 GB, and 2 GB memory-limit behavior, including device-memory adjustment;
 - deleting a message and confirming it disappears in Telegram;
 - network loss during upload/download.
 
@@ -163,7 +178,7 @@ There is currently no automated Telegram integration suite because it would requ
 - logout revokes the session in Telegram Devices;
 - installability on desktop and mobile;
 - same-origin assets available offline;
-- Telegram/media requests absent from service-worker caches.
+- Telegram requests and progressive media responses absent from service-worker caches.
 
 ### Responsive and accessibility
 
@@ -190,7 +205,7 @@ Inspect the raw page IDs and ensure `nextOffset` is calculated from all raw mess
 
 ### Thumbnail is blank
 
-Clear the thumbnail cache, verify the message actually has a Telegram thumbnail, and test whether thumbnail index `0` remains supported after a Teleproto upgrade. Missing thumbnails should fall back to an icon rather than fail the gallery.
+Clear the thumbnail cache, verify the message actually has a Telegram thumbnail, and test whether thumbnail index `1` remains supported after a Teleproto upgrade. Missing thumbnails should fall back to an icon rather than fail the gallery.
 
 ### Browser upload says `Cannot use [object File] as file`
 
@@ -200,13 +215,17 @@ Confirm `TelegramDrive.upload()` still creates the marked browser `File` clone d
 
 Teleproto 1.228 checks download writers against Node's unavailable browser `fs.WriteStream`. Confirm that both `teleproto-browser-fixes` registrations remain in `vite.config.ts`: one handles optimized development dependencies and one handles production builds. Restart the dev server after changing the Vite configuration so its dependency cache is regenerated. Revalidate the narrow transforms whenever Teleproto is upgraded.
 
+### Preview reports `Bytes or str expected, not object`
+
+Telegram file references may arrive as typed byte-array views rather than the exact `Buffer` constructor instance expected by Teleproto's serializer. Confirm the `tl/runtime/helpers.js` typed-byte transform remains enabled in both Vite transform paths, then rebuild the production bundle.
+
 ### Video reaches 100%, then reports a non-callable `instanceof`
 
 Teleproto 1.228's custom file metadata helper incorrectly executes `attribute instanceof constructors` where `constructors` is an array. `TelegramDrive.toCloudItem()` must read `message.video.duration` or `message.audio.duration`, not `message.file.duration`. The `tl/custom/file.js` correction in `vite.config.ts` also makes the dependency getter safely test each callable constructor.
 
 ### Production works differently from development
 
-Production enables the service worker and uses relative asset paths. Unregister old service workers and clear Cache Storage when diagnosing stale resources, then increment `CACHE_NAME` for intentional shell changes.
+Both environments enable the service worker, but development disables its shell cache. Production also uses relative asset paths. Unregister old service workers and clear Cache Storage when diagnosing stale resources, then increment `CACHE_NAME` for intentional shell changes. If progressive playback falls back after deployment, confirm the active worker answers the `telegram-stream-ping` handshake and that range responses are `206` with `Cache-Control: no-store`.
 
 ## Deployment
 
