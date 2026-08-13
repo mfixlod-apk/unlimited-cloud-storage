@@ -283,6 +283,7 @@ export default function App() {
       showPublicChannels={showPublicChannels}
       onShowPublicChannels={setShowPublicChannels}
       onSelectChannel={chooseChannel}
+      onCreateChannel={createChannel}
       onChangeChannel={() => setStage("channels")}
       onForget={forgetDevice}
       onLogOut={logOut}
@@ -579,13 +580,14 @@ const emptyUploadSnapshot = (): UploadSnapshot => ({
   recent: [],
 });
 
-function DriveScreen({ account, channel, channels, showPublicChannels, onShowPublicChannels, onSelectChannel, onChangeChannel, onForget, onLogOut }: {
+function DriveScreen({ account, channel, channels, showPublicChannels, onShowPublicChannels, onSelectChannel, onCreateChannel, onChangeChannel, onForget, onLogOut }: {
   account: any;
   channel: CloudChannel;
   channels: CloudChannel[];
   showPublicChannels: boolean;
   onShowPublicChannels: (value: boolean) => void;
   onSelectChannel: (channel: CloudChannel) => Promise<void>;
+  onCreateChannel: (title: string) => Promise<CloudChannel>;
   onChangeChannel: () => void;
   onForget: () => Promise<void>;
   onLogOut: () => Promise<void>;
@@ -1133,7 +1135,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
     <div className="app-shell" onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}>
       <aside className="sidebar">
         <Brand />
-        <ChannelSwitcher channel={channel} channels={channels} showPublic={showPublicChannels} onShowPublic={onShowPublicChannels} onSelect={onSelectChannel} onManage={onChangeChannel} />
+        <ChannelSwitcher channel={channel} channels={channels} showPublic={showPublicChannels} onShowPublic={onShowPublicChannels} onSelect={onSelectChannel} onCreate={onCreateChannel} onManage={onChangeChannel} />
         <nav>{tabs.map(({ value, label, icon: TabIcon }) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}><TabIcon />{label}<span>{value === "all" ? `${items.length}${hasMore ? "+" : ""}` : items.filter((item) => item.kind === value).length}</span></button>)}</nav>
         <div className="sidebar-foot"><button onClick={() => setSettings(true)}><SettingsIcon />Settings</button><div className="account-chip"><span>{userName(account).slice(0, 1).toUpperCase()}</span><div><strong>{userName(account)}</strong><small><i className={online ? "online" : ""} />{online ? "Connected" : "Offline"}</small></div></div></div>
       </aside>
@@ -1148,7 +1150,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
           <div><h1>{tabs.find((tab) => tab.value === filter)?.label}</h1><p>{channel.title} <span>·</span> {visibleItems.length} {visibleItems.length === 1 ? "item" : "items"}</p></div>
           <div className="header-actions"><button className={`secondary-button month-toggle ${groupByMonth ? "active" : ""}`} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth} aria-label="Group files by month" title="Group files by month"><CalendarIcon /><span>{groupByMonth ? "Grouped" : "Group by month"}</span></button><button className="secondary-button sort-toggle" aria-label={`Order: ${sortOrder === "newest" ? "newest first" : "oldest first"}`} title={sortOrder === "newest" ? "Newest first" : "Oldest first"} onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon /><span>{sortOrder === "newest" ? "Newest first" : "Oldest first"}</span></button><label className="search-box"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label><button className="primary-button" onClick={() => uploadSnapshot.total > 0 ? setShowUploadPanel(true) : setShowSyncChooser(true)}><UploadIcon />{syncActive ? `Syncing ${uploadSnapshot.done}/${uploadSnapshot.total}` : "Sync now"}</button></div>
         </header>
-        <div className="mobile-channel-control"><ChannelSwitcher channel={channel} channels={channels} showPublic={showPublicChannels} onShowPublic={onShowPublicChannels} onSelect={onSelectChannel} onManage={onChangeChannel} /></div>
+        <div className="mobile-channel-control"><ChannelSwitcher channel={channel} channels={channels} showPublic={showPublicChannels} onShowPublic={onShowPublicChannels} onSelect={onSelectChannel} onCreate={onCreateChannel} onManage={onChangeChannel} /></div>
         <div className="mobile-tabs">{tabs.map(({ value, label }) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div>
         <input ref={mediaInput} type="file" accept="image/*,video/*" multiple hidden onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void handleFiles(event.target.files); event.target.value = ""; }} />
         <input ref={fileInput} type="file" multiple hidden onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void handleFiles(event.target.files); event.target.value = ""; }} />
@@ -1169,16 +1171,21 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
   );
 }
 
-function ChannelSwitcher({ channel, channels, showPublic, onShowPublic, onSelect, onManage }: {
+function ChannelSwitcher({ channel, channels, showPublic, onShowPublic, onSelect, onCreate, onManage }: {
   channel: CloudChannel;
   channels: CloudChannel[];
   showPublic: boolean;
   onShowPublic: (value: boolean) => void;
   onSelect: (channel: CloudChannel) => Promise<void>;
+  onCreate: (title: string) => Promise<CloudChannel>;
   onManage: () => void;
 }) {
   const availableChannels = channels.filter((entry) => showPublic || !entry.isPublic || entry.id === channel.id);
   const details = useRef<HTMLDetailsElement>(null);
+  const [creating, setCreating] = useState(false);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createTitle, setCreateTitle] = useState("Unlimited Cloud Storage");
+  const [createError, setCreateError] = useState("");
   useEffect(() => {
     const close = (event: MouseEvent) => {
       if (details.current && !details.current.contains(event.target as Node)) details.current.removeAttribute("open");
@@ -1190,7 +1197,23 @@ function ChannelSwitcher({ channel, channels, showPublic, onShowPublic, onSelect
     details.current?.removeAttribute("open");
     if (next.id !== channel.id) void onSelect(next);
   };
-  return <div className="channel-switcher"><span>Storage channel</span><details className="channel-select" ref={details}><summary aria-label="Switch storage channel"><FolderIcon /><strong title={channel.title}>{channel.title}</strong><ChevronIcon /></summary><div className="channel-dropdown">{availableChannels.map((entry) => <button key={entry.id} onClick={() => select(entry)} disabled={!entry.canWrite} className={entry.id === channel.id ? "selected" : ""}><span><strong>{entry.title}</strong><small>{entry.isPublic ? "Public" : "Private"}{entry.canWrite ? "" : " · Read-only"}</small></span>{entry.id === channel.id && <CheckIcon />}</button>)}<label className="dropdown-public-toggle"><span><strong>Show public</strong><small>May be visible to subscribers</small></span><input type="checkbox" checked={showPublic} onChange={(event) => onShowPublic(event.target.checked)} /></label></div></details><button className="channel-manage" onClick={onManage}>Manage channels</button></div>;
+  const create = async (event: FormEvent) => {
+    event.preventDefault();
+    const title = createTitle.trim();
+    if (!title) return setCreateError("Enter a channel name.");
+    if (title.length > 128) return setCreateError("Keep the name under 128 characters.");
+    setCreateBusy(true);
+    setCreateError("");
+    try {
+      const created = await onCreate(title);
+      details.current?.removeAttribute("open");
+      await onSelect(created);
+    } catch (cause) {
+      setCreateError(friendlyError(cause));
+      setCreateBusy(false);
+    }
+  };
+  return <div className="channel-switcher"><span>Storage channel</span><details className="channel-select" ref={details}><summary aria-label="Switch storage channel"><FolderIcon /><strong title={channel.title}>{channel.title}</strong><ChevronIcon /></summary><div className="channel-dropdown">{availableChannels.map((entry) => <button key={entry.id} onClick={() => select(entry)} disabled={!entry.canWrite} className={entry.id === channel.id ? "selected" : ""}><span><strong>{entry.title}</strong><small>{entry.isPublic ? "Public" : "Private"}{entry.canWrite ? "" : " · Read-only"}</small></span>{entry.id === channel.id && <CheckIcon />}</button>)}<div className="dropdown-create">{creating ? <form className="dropdown-create-form" onSubmit={create}><label>Channel name<input autoFocus maxLength={128} value={createTitle} onChange={(event) => setCreateTitle(event.target.value)} disabled={createBusy} /></label>{createError && <small role="alert">{createError}</small>}<div><button type="button" onClick={() => { setCreating(false); setCreateError(""); }} disabled={createBusy}>Cancel</button><button type="submit" disabled={createBusy}>{createBusy ? <><span className="spinner" />Creating…</> : "Create"}</button></div></form> : <button className="dropdown-create-button" onClick={() => { setCreating(true); setCreateError(""); }}><PlusIcon /><span><strong>Create new channel</strong><small>Private storage channel</small></span></button>}</div><label className="dropdown-public-toggle"><span><strong>Show public</strong><small>May be visible to subscribers</small></span><input type="checkbox" checked={showPublic} onChange={(event) => onShowPublic(event.target.checked)} /></label></div></details><button className="channel-manage" onClick={onManage}>Manage channels</button></div>;
 }
 
 function MemoryGallery({ items, channel, groupByMonth, memoryLimitMb, hasMore, paused, onOpen, onDownload, onDelete }: {

@@ -139,6 +139,7 @@ There is currently no automated Telegram integration suite because it would requ
 - a newly created channel appears after refresh;
 - channel creation in the app selects the new private broadcast channel;
 - channel creation is available from the channel chooser;
+- the desktop and mobile channel dropdowns create, select, and persist a new private channel without leaving the drive;
 - saved channel restoration;
 - mixed photo, video, audio, document, text, and service messages;
 - multiple history pages without duplicates or gaps;

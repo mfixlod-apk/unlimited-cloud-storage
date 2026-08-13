@@ -150,6 +150,16 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
 .channel-dropdown button strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .channel-dropdown button small { color: var(--muted); font-size: 9px; }
 .channel-dropdown button > svg { width: 14px; color: var(--accent); }
+.dropdown-create { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
+.dropdown-create-button > svg { color: var(--accent); }
+.dropdown-create-form { display: grid; gap: 7px; padding: 7px; }
+.dropdown-create-form label { display: grid; gap: 5px; color: var(--muted); font-size: 9px; font-weight: 700; }
+.dropdown-create-form input { min-height: 35px; padding: 0 9px; border-radius: 7px; font-size: 11px; }
+.dropdown-create-form > small { color: var(--danger); font-size: 9px; line-height: 1.35; }
+.dropdown-create-form > div { display: flex; justify-content: flex-end; gap: 6px; }
+.channel-dropdown .dropdown-create-form button { width: auto; min-height: 31px; justify-content: center; padding: 0 9px; border: 1px solid var(--line); font-size: 10px; font-weight: 700; }
+.channel-dropdown .dropdown-create-form button[type="submit"] { color: white; border-color: var(--accent); background: var(--accent); }
+.channel-dropdown .dropdown-create-form button .spinner { width: 12px; height: 12px; display: inline-block; flex: 0 0 auto; }
 .dropdown-public-toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; padding: 9px; border-top: 1px solid var(--line); cursor: pointer; }
 .dropdown-public-toggle > span { display: grid; gap: 2px; }
 .dropdown-public-toggle small { color: var(--muted); font-size: 9px; }

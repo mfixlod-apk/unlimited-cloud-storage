@@ -81,7 +81,7 @@ This includes private and public broadcast channels and excludes supergroups, or
 
 Only the channel ID is persisted. The current `inputEntity` is retained in memory because it contains session-specific Telegram addressing information.
 
-The channel screen can also call `createPrivateChannel()`. It uses Teleproto's native `createChannel()` method without `megagroup`, producing a private broadcast channel with the user-supplied title. The returned channel is converted to a `CloudChannel`, selected immediately, and persisted. Channel-limit and empty-title errors receive user-friendly messages.
+The channel screen and the drive's channel dropdown can call `createPrivateChannel()`. The dropdown exposes an inline name form, so creating storage never requires leaving the drive. Creation uses Teleproto's native `createChannel()` method without `megagroup`, producing a private broadcast channel with the user-supplied title. The returned channel is converted to a `CloudChannel`, selected immediately, and persisted. Channel-limit and empty-title errors receive user-friendly messages.
 
 ## Message mapping
 
