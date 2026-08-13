@@ -15,7 +15,7 @@ Developer documentation is indexed in [`docs/README.md`](docs/README.md).
 - Channel switching from the desktop sidebar and mobile drive header
 - Full-history filename search and media-type filters
 - Adaptive off-screen gallery unloading with a configurable 1 GB default memory budget
-- Sequential drag-and-drop or file-picker uploads with progress and cancellation
+- Foreground **Sync now** for very large picker/directory selections, with a durable metadata queue, sequential bounded-memory uploads, pause/resume, stall detection, and five-attempt retry
 - Exact-byte image/document storage, broad video/audio uploads, progressive video/audio playback with seeking and a buffer bar, file downloads, and permanent deletion
 - Responsive desktop/mobile UI with a safe-area-aware phone navigation bar and installable PWA shell
 - Separate controls for clearing thumbnails, forgetting a browser, and revoking the Telegram session
@@ -84,6 +84,7 @@ The maintained [`teleproto`](https://docs.teleproto.dev/) MTProto client is used
 - Desktop, iOS/Android browser, and installed-PWA uploads use the original picker Blob and read bounded Telegram parts rather than copying the whole file into one JavaScript buffer.
 - An active filename search scans remaining history pages automatically. Very large channels can therefore take time and remain subject to Telegram flood waits.
 - Uploads and downloads must remain in the foreground on mobile browsers.
+- The PWA cannot permanently enumerate an iPhone/Android photo library or wake reliably on a schedule. A reloaded unfinished sync asks the user to select those files again; it never duplicates the originals into IndexedDB as a retry buffer.
 - Telegram flood waits, per-file limits, and account restrictions still apply.
 
 This project is independent and is not affiliated with or endorsed by Telegram.

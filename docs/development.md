@@ -157,6 +157,12 @@ There is currently no automated Telegram integration suite because it would requ
 - photo-library, camera, Files/document-provider, zero-byte, and large-file selections where the platform permits them;
 - drag-and-drop upload;
 - upload cancellation and retry after cancellation;
+- a 10,000-entry synthetic or real picker selection does not render one progress row per file or copy originals into IndexedDB;
+- adding another selection while syncing appends to the existing single worker;
+- pause during an upload and during retry backoff, followed by a successful resume;
+- offline recovery waits for connectivity without consuming all retry attempts;
+- reload with unfinished queue records shows **Select unfinished files**, and reselecting them resumes while completed matches are skipped;
+- a completed foreground-sync batch creates one `UCS_SYNC_V1` text checkpoint that stays out of the gallery;
 - image/video/audio preview;
 - progressive video/audio startup before the full file downloads, forward/backward seeking, and the visible buffered-range bar;
 - repeated long-distance seeks cancel superseded Telegram ranges and do not begin a full-file Blob load;

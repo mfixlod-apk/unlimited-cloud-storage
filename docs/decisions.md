@@ -107,3 +107,11 @@ The option is off by default so a successful login does not create a persistent 
 **Why:** Channels with thousands of files should remain searchable without retaining thousands of Teleproto object graphs, DOM cards, decoded thumbnails, or Blob URLs.
 
 **Consequences:** Returning to a parked chunk may briefly reload thumbnails from IndexedDB. Active search deliberately paginates to the start of history and can take time or encounter Telegram flood waits on very large channels.
+
+## 14. Foreground-only durable sync queue
+
+**Decision:** `Sync now` accepts arbitrarily large picker selections without an application file-count cap, uploads sequentially with bounded retries, and persists only queue/batch metadata. Original picker files stay as page-lifetime references and are never copied into IndexedDB. Completed batches receive a small Telegram text checkpoint.
+
+**Why:** Browser storage cannot safely duplicate a 10,000-file photo library, while iOS and other mobile browsers cannot restore picker capabilities or guarantee periodic background execution. Aggregate UI state also avoids retaining thousands of progress components.
+
+**Consequences:** Users must keep the PWA open. Reloaded unfinished queues require the user to select those files again. Native automatic photo backup remains a separate product phase and must not be implied by the PWA UI.

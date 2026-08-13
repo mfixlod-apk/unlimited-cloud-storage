@@ -504,6 +504,34 @@ export class TelegramDrive {
     });
   }
 
+  async writeSyncCheckpoint(channel: CloudChannel, checkpoint: {
+    batchId: string;
+    fileCount: number;
+    totalBytes: number;
+    sourceOldest?: number;
+    sourceNewest?: number;
+    completedAt: number;
+  }) {
+    const message = [
+      "UCS_SYNC_V1",
+      JSON.stringify({
+        type: "ucs.sync.v1",
+        batch_id: checkpoint.batchId,
+        status: "committed",
+        file_count: checkpoint.fileCount,
+        total_bytes: checkpoint.totalBytes,
+        source_oldest: checkpoint.sourceOldest ? new Date(checkpoint.sourceOldest).toISOString() : undefined,
+        source_newest: checkpoint.sourceNewest ? new Date(checkpoint.sourceNewest).toISOString() : undefined,
+        completed_at: new Date(checkpoint.completedAt).toISOString(),
+      }),
+    ].join("\n");
+    await withTimeout(
+      this.requiredClient().sendMessage(channel.inputEntity, { message }),
+      TELEGRAM_REQUEST_TIMEOUT,
+      "Telegram took too long to save the sync checkpoint. It will be retried later.",
+    );
+  }
+
   async delete(channel: CloudChannel, item: CloudItem) {
     await this.requiredClient().deleteMessages(channel.inputEntity, [item.id], { revoke: true });
     await localStore.deleteThumbnail(thumbnailCacheKey(item.channelId, item.id));

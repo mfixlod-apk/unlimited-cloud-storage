@@ -8,7 +8,7 @@ The app does not provide end-to-end or zero-knowledge encryption. Telegram recei
 
 ## IndexedDB schema
 
-[`src/storage.ts`](../src/storage.ts) opens database `unlimited-cloud-storage` at version `3` with two object stores. Versions 2 and 3 clear only obsolete thumbnail entries and preserve connection, memory-limit, and channel configuration.
+[`src/storage.ts`](../src/storage.ts) opens database `unlimited-cloud-storage` at version `4` with four object stores. Versions 2 and 3 clear only obsolete thumbnail entries. Version 4 adds durable foreground-sync metadata while preserving connection, memory-limit, channel, and thumbnail data.
 
 ### `config`
 
@@ -23,6 +23,14 @@ The app does not provide end-to-end or zero-knowledge encryption. Telegram recei
 | Key | Value | Purpose |
 | --- | --- | --- |
 | `v3:<channelId>:<messageId>` | `Blob` | Disposable image/video thumbnail cache; the prefix versions thumbnail quality/recovery behavior |
+
+### `uploadQueue`
+
+One record is keyed by a channel-scoped fingerprint made from the picker-provided relative path, filename, size, and modification time. Records contain only queue metadata, attempts, state, and batch membership. Original file bytes and `File` objects are never stored here.
+
+### `uploadBatches`
+
+One record per foreground selection batch stores counts, total bytes, source-date bounds, completion state, and whether the Telegram checkpoint was sent. An active batch remains recoverable after reload; completed records allow a later selection on the same browser to skip matching files.
 
 Telegram remains authoritative for the file list. Clearing IndexedDB must never delete Telegram files.
 
@@ -49,6 +57,8 @@ Do not store Teleproto `inputEntity` objects. They contain non-plain values, may
 | Telegram 2FA password | Active callback/prompt only |
 | QR token | Active QR image/polling request only |
 | Channel input entity | Active in-memory Telegram session only |
+| Picker `File` objects | Active page only; released after upload |
+| Upload queue and batch metadata | IndexedDB until the browser is forgotten or site data is cleared |
 
 The app intentionally has no analytics, remote logging, query-string secrets, or public build-time credential variables.
 
@@ -59,6 +69,7 @@ These operations must remain distinct:
 - **Forget this browser** disconnects the local client and clears IndexedDB. It does not revoke the corresponding Telegram authorization on Telegram's servers.
 - **Log out of Telegram** calls Teleproto's logout operation first, revoking the current authorization, then disconnects and clears IndexedDB.
 - **Clear thumbnail cache** removes only thumbnail blobs. It must not remove connection or channel configuration.
+- **Forget this browser** also clears upload queue and batch metadata. It never deletes files or checkpoint messages from Telegram.
 
 If logout cannot reach Telegram, the current code still disconnects and clears local state. The user may need to revoke the device manually from Telegram's Devices screen.
 
@@ -114,6 +125,7 @@ Do not implement MTProto primitives locally. Prefer maintained library updates, 
 
 - No credentials, session strings, channel IDs, or phone numbers in source, logs, URLs, screenshots, fixtures, or CI configuration.
 - New IndexedDB data is documented and removable through the appropriate settings action.
+- Durable queues store metadata only; never persist thousands of original `File`/`Blob` values as a retry buffer.
 - Service-worker changes still ignore cross-origin requests.
 - Object URLs and abort controllers are cleaned up on unmount/cancellation.
 - Destructive Telegram actions require explicit confirmation.

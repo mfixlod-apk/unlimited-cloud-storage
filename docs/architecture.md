@@ -11,7 +11,7 @@ GitHub Pages
 Browser
     ├── React UI
     ├── Teleproto MTProto client
-    ├── IndexedDB session/config/thumbnail cache
+    ├── IndexedDB session/config/thumbnail cache/sync queue metadata
     └── same-origin PWA shell cache
     │
     │ MTProto over WebSocket
@@ -137,14 +137,18 @@ Off-screen chunks unmount their card and thumbnail components, revoke Blob URLs,
 ### Upload
 
 ```text
-File picker or drop
-  → add queue entries
-  → upload one file at a time
+File picker, directory picker, or drop
+  → fingerprint and persist lightweight queue entries
+  → retain picker File references for this page lifetime only
+  → upload one file at a time with bounded retries
   → uploadFile reads bounded Blob slices and returns Telegram InputFile
   → sendFile posts that unambiguous handle to the selected channel
-  → update progress UI
-  → refresh newest history page when the queue finishes
+  → release the completed File reference
+  → commit a small Telegram batch-checkpoint text message
+  → refresh newest history page when the queue drains
 ```
+
+The queue UI keeps aggregate counters and at most six recent rows rather than rendering every selected item. This keeps 10,000-file selections from creating a 10,000-node progress panel. IndexedDB stores metadata, not original bytes. After reload, unfinished records become `needs-file`; selecting the same files again relinks them by picker metadata and resumes the original batches.
 
 ### View or download
 

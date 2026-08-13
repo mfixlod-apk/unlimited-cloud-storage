@@ -24,7 +24,12 @@ import {
   UploadIcon,
   VideoIcon,
 } from "./icons";
-import { localStore } from "./storage";
+import {
+  localStore,
+  type UploadBatchRecord,
+  type UploadQueueRecord,
+  type UploadQueueStatus,
+} from "./storage";
 import {
   telegramDrive,
   type CloudChannel,
@@ -85,6 +90,8 @@ const monthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth()
 const formatMonth = (date: Date) => new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(date);
 
 const DIRECT_SAVE_THRESHOLD = 750 * 1024 * 1024;
+const MAX_UPLOAD_ATTEMPTS = 5;
+const UPLOAD_STALL_TIMEOUT = 2 * 60 * 1000;
 const previewLimitMb = (effectiveMemoryMb: number) => {
   if (effectiveMemoryMb <= 256) return 128;
   if (effectiveMemoryMb <= 512) return 384;
@@ -93,6 +100,59 @@ const previewLimitMb = (effectiveMemoryMb: number) => {
 };
 
 const userName = (user: any) => [user?.firstName, user?.lastName].filter(Boolean).join(" ") || user?.username || "Telegram user";
+
+const fileFingerprint = (channelId: string, file: File) => {
+  const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || "";
+  const fingerprint = [relativePath, file.name, file.size, file.lastModified].join("\u0000");
+  return { id: `${channelId}\u0000${fingerprint}`, fingerprint, relativePath };
+};
+
+const fileResumeKey = (file: Pick<File, "name" | "size" | "lastModified">) => [file.name, file.size, file.lastModified].join("\u0000");
+
+const retryDelay = (attempt: number) => Math.min(30_000, 1_000 * 3 ** Math.max(0, attempt - 1));
+
+const telegramRetryDelay = (error: unknown, attempt: number) => {
+  const raw = error instanceof Error ? error.message : String(error);
+  const floodSeconds = Number(raw.match(/(?:FLOOD_WAIT_|wait of\s+)(\d+)/i)?.[1]);
+  return Number.isFinite(floodSeconds) && floodSeconds > 0
+    ? Math.min(15 * 60_000, (floodSeconds + 1) * 1000)
+    : retryDelay(attempt);
+};
+
+const waitFor = (milliseconds: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
+  if (signal.aborted) return reject(new DOMException("Upload paused", "AbortError"));
+  const timer = window.setTimeout(done, milliseconds);
+  function done() {
+    signal.removeEventListener("abort", cancelled);
+    resolve();
+  }
+  function cancelled() {
+    window.clearTimeout(timer);
+    reject(new DOMException("Upload paused", "AbortError"));
+  }
+  signal.addEventListener("abort", cancelled, { once: true });
+});
+
+const waitForOnline = (signal: AbortSignal) => new Promise<void>((resolve, reject) => {
+  if (signal.aborted) return reject(new DOMException("Upload paused", "AbortError"));
+  if (navigator.onLine) return resolve();
+  const online = () => finish(resolve);
+  const cancelled = () => finish(() => reject(new DOMException("Upload paused", "AbortError")));
+  const finish = (done: () => void) => {
+    window.removeEventListener("online", online);
+    signal.removeEventListener("abort", cancelled);
+    done();
+  };
+  window.addEventListener("online", online, { once: true });
+  signal.addEventListener("abort", cancelled, { once: true });
+});
+
+const uploadStatusBucket = (status: UploadQueueStatus) => {
+  if (status === "done") return "done" as const;
+  if (status === "failed") return "failed" as const;
+  if (status === "needs-file") return "needsFile" as const;
+  return "pending" as const;
+};
 
 export default function App() {
   const [stage, setStage] = useState<Stage>("boot");
@@ -490,8 +550,34 @@ function ChannelScreen({ account, channels, showPublic, onShowPublic, onChoose, 
   );
 }
 
-interface UploadEntry { id: string; name: string; progress: number; status: "waiting" | "uploading" | "done" | "error" | "cancelled"; error?: string }
+interface UploadRecentEntry { id: string; name: string; status: UploadQueueStatus; error?: string }
+interface UploadSnapshot {
+  total: number;
+  pending: number;
+  done: number;
+  failed: number;
+  needsFile: number;
+  skipped: number;
+  paused: boolean;
+  currentName?: string;
+  currentProgress: number;
+  currentAttempt: number;
+  recent: UploadRecentEntry[];
+}
 interface DownloadEntry { name: string; progress: number }
+
+const emptyUploadSnapshot = (): UploadSnapshot => ({
+  total: 0,
+  pending: 0,
+  done: 0,
+  failed: 0,
+  needsFile: 0,
+  skipped: 0,
+  paused: false,
+  currentProgress: 0,
+  currentAttempt: 0,
+  recent: [],
+});
 
 function DriveScreen({ account, channel, channels, showPublicChannels, onShowPublicChannels, onSelectChannel, onChangeChannel, onForget, onLogOut }: {
   account: any;
@@ -516,12 +602,28 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<CloudItem>();
   const [settings, setSettings] = useState(false);
-  const [uploads, setUploads] = useState<UploadEntry[]>([]);
+  const [uploadSnapshot, setUploadSnapshot] = useState<UploadSnapshot>(emptyUploadSnapshot);
+  const [showUploadPanel, setShowUploadPanel] = useState(false);
+  const [showSyncChooser, setShowSyncChooser] = useState(false);
   const [downloadEntry, setDownloadEntry] = useState<DownloadEntry>();
   const [dragging, setDragging] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
   const fileInput = useRef<HTMLInputElement>(null);
+  const mediaInput = useRef<HTMLInputElement>(null);
+  const directoryInput = useRef<HTMLInputElement>(null);
   const uploadAbort = useRef<AbortController | undefined>(undefined);
+  const uploadRecords = useRef(new Map<string, UploadQueueRecord>());
+  const uploadBatches = useRef(new Map<string, UploadBatchRecord>());
+  const uploadFiles = useRef(new Map<string, File>());
+  const uploadOrder = useRef<string[]>([]);
+  const uploadOrderSet = useRef(new Set<string>());
+  const uploadVisibleIds = useRef(new Set<string>());
+  const uploadStats = useRef(emptyUploadSnapshot());
+  const uploadRunning = useRef(false);
+  const uploadPaused = useRef(false);
+  const uploadMounted = useRef(true);
+  const uploadLastPaint = useRef(0);
+  const uploadRestore = useRef<Promise<void>>(Promise.resolve());
   const downloadAbort = useRef<AbortController | undefined>(undefined);
   const sentinel = useRef<HTMLDivElement>(null);
   const offsetRef = useRef(0);
@@ -592,33 +694,357 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
     return items.filter((item) => (filter === "all" || item.kind === filter) && (!query || item.name.toLocaleLowerCase().includes(query)));
   }, [items, filter, search]);
 
-  const handleFiles = async (list: FileList | File[]) => {
-    const files = Array.from(list);
-    if (!files.length) return;
-    const queued = files.map((file) => ({ id: crypto.randomUUID(), name: file.name, progress: 0, status: "waiting" as const }));
-    setUploads((current) => [...current.filter((entry) => entry.status === "uploading"), ...queued]);
-    for (let index = 0; index < files.length; index += 1) {
-      const file = files[index];
-      const entry = queued[index];
-      const controller = new AbortController();
-      uploadAbort.current = controller;
-      setUploads((current) => current.map((item) => item.id === entry.id ? { ...item, status: "uploading" } : item));
+  const publishUploadSnapshot = useCallback((force = false) => {
+    const now = Date.now();
+    if (!force && now - uploadLastPaint.current < 180) return;
+    uploadLastPaint.current = now;
+    const stats = uploadStats.current;
+    if (uploadMounted.current) setUploadSnapshot({ ...stats, recent: [...stats.recent] });
+  }, []);
+
+  const activateUploadRecord = (record: UploadQueueRecord) => {
+    if (uploadVisibleIds.current.has(record.id)) return;
+    uploadVisibleIds.current.add(record.id);
+    uploadStats.current.total += 1;
+    uploadStats.current[uploadStatusBucket(record.status)] += 1;
+  };
+
+  const updateUploadRecord = async (record: UploadQueueRecord, status: UploadQueueStatus, error?: string) => {
+    const previous = uploadStatusBucket(record.status);
+    const next = uploadStatusBucket(status);
+    if (uploadVisibleIds.current.has(record.id) && previous !== next) {
+      uploadStats.current[previous] -= 1;
+      uploadStats.current[next] += 1;
+    }
+    record.status = status;
+    record.error = error;
+    if (status === "done") record.completedAt = Date.now();
+    uploadRecords.current.set(record.id, record);
+    if (status === "done" || status === "failed" || status === "retrying") {
+      uploadStats.current.recent = [
+        { id: record.id, name: record.name, status, error },
+        ...uploadStats.current.recent.filter((entry) => entry.id !== record.id),
+      ].slice(0, 6);
+    }
+    await localStore.saveUploadRecord(record);
+    publishUploadSnapshot(true);
+  };
+
+  const finalizeReadyBatches = async () => {
+    for (const batch of uploadBatches.current.values()) {
+      if (batch.checkpointSent) continue;
+      const records = await localStore.getUploadBatchRecords(batch.id);
+      if (records.length !== batch.fileCount || records.some((record) => record.status !== "done")) continue;
+      const completedAt = records.reduce((latest, record) => Math.max(latest, record.completedAt || 0), Date.now());
       try {
-        await telegramDrive.upload(channel, file, (progress) => {
-          setUploads((current) => current.map((item) => item.id === entry.id ? { ...item, progress } : item));
-        }, controller.signal);
-        setUploads((current) => current.map((item) => item.id === entry.id ? { ...item, progress: 1, status: "done" } : item));
+        await telegramDrive.writeSyncCheckpoint(channel, { ...batch, completedAt, batchId: batch.id });
+        const completed: UploadBatchRecord = { ...batch, status: "completed", completedAt, checkpointSent: true };
+        uploadBatches.current.set(batch.id, completed);
+        await localStore.saveUploadBatch(completed);
       } catch (cause) {
-        const cancelled = controller.signal.aborted;
-        const uploadError = cancelled ? undefined : friendlyError(cause);
-        setUploads((current) => current.map((item) => item.id === entry.id ? { ...item, status: cancelled ? "cancelled" : "error", error: uploadError } : item));
-        if (uploadError) setError(uploadError);
-        if (cancelled) break;
+        setError(`Files uploaded, but the sync checkpoint will be retried later: ${friendlyError(cause)}`);
       }
     }
-    uploadAbort.current = undefined;
-    await load(true);
-    window.setTimeout(() => setUploads((current) => current.filter((entry) => entry.status !== "done")), 2500);
+  };
+
+  const queueUploadId = (id: string, first = false) => {
+    if (uploadOrderSet.current.has(id)) return;
+    uploadOrderSet.current.add(id);
+    first ? uploadOrder.current.unshift(id) : uploadOrder.current.push(id);
+  };
+
+  const processUploadQueue = async () => {
+    if (uploadRunning.current || uploadPaused.current) return;
+    uploadRunning.current = true;
+    uploadStats.current.paused = false;
+    publishUploadSnapshot(true);
+    try {
+      while (!uploadPaused.current) {
+        const id = uploadOrder.current.shift();
+        if (!id) break;
+        uploadOrderSet.current.delete(id);
+        const record = uploadRecords.current.get(id);
+        const file = uploadFiles.current.get(id);
+        if (!record || record.status === "done") continue;
+        if (!file) {
+          await updateUploadRecord(record, "needs-file", "Select this file again to resume.");
+          continue;
+        }
+
+        let uploaded = false;
+        for (let attempt = Math.max(1, record.attempts + 1); attempt <= MAX_UPLOAD_ATTEMPTS; attempt += 1) {
+          if (uploadPaused.current) break;
+          record.attempts = attempt;
+          const controller = new AbortController();
+          uploadAbort.current = controller;
+          let stalled = false;
+          let stallTimer = 0;
+          const armStallTimer = () => {
+            window.clearTimeout(stallTimer);
+            stallTimer = window.setTimeout(() => {
+              stalled = true;
+              controller.abort();
+            }, UPLOAD_STALL_TIMEOUT);
+          };
+          uploadStats.current.currentName = record.name;
+          uploadStats.current.currentProgress = 0;
+          uploadStats.current.currentAttempt = attempt;
+          await updateUploadRecord(record, attempt === 1 ? "uploading" : "retrying", attempt > 1 ? `Attempt ${attempt} of ${MAX_UPLOAD_ATTEMPTS}` : undefined);
+          armStallTimer();
+          try {
+            await telegramDrive.upload(channel, file, (progress) => {
+              armStallTimer();
+              uploadStats.current.currentProgress = progress;
+              publishUploadSnapshot();
+            }, controller.signal);
+            window.clearTimeout(stallTimer);
+            await updateUploadRecord(record, "done");
+            uploadFiles.current.delete(id);
+            uploaded = true;
+            break;
+          } catch (cause) {
+            window.clearTimeout(stallTimer);
+            if (uploadPaused.current) {
+              record.attempts = Math.max(0, attempt - 1);
+              await updateUploadRecord(record, "queued");
+              queueUploadId(id, true);
+              break;
+            }
+            const message = stalled ? "Upload stopped making progress." : friendlyError(cause);
+            if (!navigator.onLine) {
+              record.attempts = Math.max(0, attempt - 1);
+              await updateUploadRecord(record, "retrying", "Waiting for an internet connection. This does not use a retry attempt.");
+              const onlineController = new AbortController();
+              uploadAbort.current = onlineController;
+              try {
+                await waitForOnline(onlineController.signal);
+                attempt -= 1;
+                continue;
+              } catch {
+                await updateUploadRecord(record, "queued");
+                queueUploadId(id, true);
+                break;
+              }
+            }
+            if (attempt < MAX_UPLOAD_ATTEMPTS) {
+              const delay = telegramRetryDelay(cause, attempt);
+              await updateUploadRecord(record, "retrying", `${message} Retrying in ${Math.round(delay / 1000)}s.`);
+              const delayController = new AbortController();
+              uploadAbort.current = delayController;
+              try {
+                await waitFor(delay, delayController.signal);
+              } catch {
+                await updateUploadRecord(record, "queued");
+                queueUploadId(id, true);
+                break;
+              }
+            } else {
+              await updateUploadRecord(record, "failed", `${message} Tried ${MAX_UPLOAD_ATTEMPTS} times.`);
+            }
+          }
+        }
+        if (!uploaded && uploadPaused.current) break;
+      }
+    } finally {
+      uploadAbort.current = undefined;
+      uploadRunning.current = false;
+      uploadStats.current.currentName = undefined;
+      uploadStats.current.currentProgress = 0;
+      uploadStats.current.currentAttempt = 0;
+      uploadStats.current.paused = uploadPaused.current;
+      publishUploadSnapshot(true);
+      await finalizeReadyBatches();
+      if (uploadStats.current.done > 0) await load(true);
+      if (uploadOrder.current.length && !uploadPaused.current) void processUploadQueue();
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    uploadMounted.current = true;
+    uploadPaused.current = false;
+    const restore = (async () => {
+      const [records, batches] = await Promise.all([
+        localStore.getUploadRecords(channel.id),
+        localStore.getUploadBatches(channel.id),
+      ]);
+      if (!active || !uploadMounted.current) return;
+      uploadBatches.current = new Map(batches.map((batch) => [batch.id, batch]));
+      const changed: UploadQueueRecord[] = [];
+      for (const record of records) {
+        if (record.status !== "done") {
+          record.status = "needs-file";
+          record.error = "Select this file again to resume.";
+          changed.push(record);
+          activateUploadRecord(record);
+        }
+        uploadRecords.current.set(record.id, record);
+      }
+      if (changed.length) {
+        await localStore.saveUploadRecords(changed);
+        setShowUploadPanel(true);
+      }
+      publishUploadSnapshot(true);
+      await finalizeReadyBatches();
+    })();
+    uploadRestore.current = restore;
+    void restore;
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!uploadRunning.current) return;
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => {
+      active = false;
+      uploadMounted.current = false;
+      uploadPaused.current = true;
+      uploadAbort.current?.abort();
+      window.removeEventListener("beforeunload", beforeUnload);
+    };
+  // DriveScreen is keyed by channel ID, so this initialization runs once per channel mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channel.id]);
+
+  const handleFiles = async (list: FileList | File[]) => {
+    const files = Array.from(list);
+    setShowSyncChooser(false);
+    if (!files.length) return;
+    setShowUploadPanel(true);
+    await uploadRestore.current;
+
+    // Merge persisted state first in case the picker was opened immediately
+    // after the drive mounted and queue restoration was still in flight.
+    const [persistedRecords, persistedBatches] = await Promise.all([
+      localStore.getUploadRecords(channel.id),
+      localStore.getUploadBatches(channel.id),
+    ]);
+    for (const batch of persistedBatches) {
+      if (!uploadBatches.current.has(batch.id)) uploadBatches.current.set(batch.id, batch);
+    }
+    for (const record of persistedRecords) {
+      if (uploadRecords.current.has(record.id)) continue;
+      uploadRecords.current.set(record.id, record);
+      if (record.status !== "done") activateUploadRecord(record);
+    }
+
+    const batchId = crypto.randomUUID();
+    const now = Date.now();
+    const changed: UploadQueueRecord[] = [];
+    const newRecords: UploadQueueRecord[] = [];
+    const seen = new Set<string>();
+    const resumeMatches = new Map<string, UploadQueueRecord | null>();
+    for (const record of uploadRecords.current.values()) {
+      if (record.channelId !== channel.id) continue;
+      const key = fileResumeKey(record);
+      resumeMatches.set(key, resumeMatches.has(key) ? null : record);
+    }
+    let skipped = 0;
+    for (const file of files) {
+      const identity = fileFingerprint(channel.id, file);
+      if (seen.has(identity.id)) continue;
+      seen.add(identity.id);
+      const directMatch = uploadRecords.current.get(identity.id);
+      const fallbackMatch = resumeMatches.get(fileResumeKey(file));
+      const existing = directMatch || fallbackMatch || undefined;
+      if (existing?.status === "done") {
+        skipped += 1;
+        continue;
+      }
+      if (existing && (existing.status === "queued" || existing.status === "uploading" || existing.status === "retrying")) {
+        // The same picker item was selected again while its current-page
+        // transfer was already queued or active. Do not race a second record
+        // write against that upload.
+        continue;
+      }
+      const record: UploadQueueRecord = existing ? {
+        ...existing,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        lastModified: file.lastModified,
+        relativePath: identity.relativePath,
+        status: "queued",
+        attempts: 0,
+        error: undefined,
+      } : {
+        id: identity.id,
+        channelId: channel.id,
+        batchId,
+        fingerprint: identity.fingerprint,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        lastModified: file.lastModified,
+        relativePath: identity.relativePath,
+        status: "queued",
+        attempts: 0,
+        createdAt: now,
+      };
+      if (existing && uploadVisibleIds.current.has(existing.id)) {
+        const previous = uploadStatusBucket(existing.status);
+        if (previous !== "pending") {
+          uploadStats.current[previous] -= 1;
+          uploadStats.current.pending += 1;
+        }
+      }
+      uploadRecords.current.set(record.id, record);
+      uploadFiles.current.set(record.id, file);
+      activateUploadRecord(record);
+      queueUploadId(record.id);
+      changed.push(record);
+      if (!existing) newRecords.push(record);
+    }
+
+    let newBatch: UploadBatchRecord | undefined;
+    if (newRecords.length) {
+      const dates = newRecords.map((record) => record.lastModified).filter((value) => value > 0);
+      newBatch = {
+        id: batchId,
+        channelId: channel.id,
+        status: "active",
+        fileCount: newRecords.length,
+        totalBytes: newRecords.reduce((total, record) => total + record.size, 0),
+        sourceOldest: dates.length ? dates.reduce((oldest, value) => Math.min(oldest, value), dates[0]) : undefined,
+        sourceNewest: dates.length ? dates.reduce((newest, value) => Math.max(newest, value), dates[0]) : undefined,
+        createdAt: now,
+        checkpointSent: false,
+      };
+      uploadBatches.current.set(newBatch.id, newBatch);
+    }
+    if (newBatch) await localStore.saveUploadBatchWithRecords(newBatch, changed);
+    else await localStore.saveUploadRecords(changed);
+    uploadStats.current.skipped += skipped;
+    uploadPaused.current = false;
+    uploadStats.current.paused = false;
+    publishUploadSnapshot(true);
+    void processUploadQueue();
+  };
+
+  const pauseUploads = () => {
+    uploadPaused.current = true;
+    uploadStats.current.paused = true;
+    uploadAbort.current?.abort();
+    publishUploadSnapshot(true);
+  };
+
+  const resumeUploads = async () => {
+    const reset: UploadQueueRecord[] = [];
+    for (const record of uploadRecords.current.values()) {
+      if (!uploadVisibleIds.current.has(record.id) || record.status !== "failed" || !uploadFiles.current.has(record.id)) continue;
+      const previous = uploadStatusBucket(record.status);
+      record.status = "queued";
+      record.attempts = 0;
+      record.error = undefined;
+      uploadStats.current[previous] -= 1;
+      uploadStats.current.pending += 1;
+      queueUploadId(record.id);
+      reset.push(record);
+    }
+    await localStore.saveUploadRecords(reset);
+    uploadPaused.current = false;
+    uploadStats.current.paused = false;
+    publishUploadSnapshot(true);
+    void processUploadQueue();
   };
 
   const onDrop = (event: DragEvent) => {
@@ -700,6 +1126,8 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
   const selectedIndex = selected ? visibleItems.findIndex((item) => item.id === selected.id) : -1;
   const previousItem = selectedIndex > 0 ? visibleItems[selectedIndex - 1] : undefined;
   const nextItem = selectedIndex >= 0 && selectedIndex < visibleItems.length - 1 ? visibleItems[selectedIndex + 1] : undefined;
+  const syncActive = uploadSnapshot.pending > 0 && !uploadSnapshot.paused;
+  const directoryPickerSupported = "webkitdirectory" in document.createElement("input");
 
   return (
     <div className="app-shell" onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}>
@@ -712,25 +1140,28 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
       <main className="drive-main">
         <header className="mobile-drive-nav">
           <div className="mobile-app-bar"><span className="mobile-wordmark"><CloudIcon />Unlimited Cloud Storage</span><button className="mobile-settings" onClick={() => setSettings(true)} aria-label="Open settings"><SettingsIcon /></button></div>
-          <div className="mobile-title-row"><div><h1>{tabs.find((tab) => tab.value === filter)?.label}</h1><p>{visibleItems.length}{hasMore ? "+" : ""} {visibleItems.length === 1 ? "item" : "items"}</p></div><button className="primary-button mobile-upload" onClick={() => fileInput.current?.click()} aria-label="Upload files"><UploadIcon /><span>Upload</span></button></div>
+          <div className="mobile-title-row"><div><h1>{tabs.find((tab) => tab.value === filter)?.label}</h1><p>{visibleItems.length}{hasMore ? "+" : ""} {visibleItems.length === 1 ? "item" : "items"}</p></div><button className="primary-button mobile-upload" onClick={() => uploadSnapshot.total > 0 ? setShowUploadPanel(true) : setShowSyncChooser(true)} aria-label="Sync files now"><UploadIcon /><span>{syncActive ? "Syncing" : "Sync now"}</span></button></div>
           <label className="search-box mobile-search"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label>
           <div className="mobile-tools"><button className={groupByMonth ? "active" : ""} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth}><CalendarIcon />{groupByMonth ? "Grouped by month" : "Group by month"}</button><button onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon />{sortOrder === "newest" ? "Newest first" : "Oldest first"}</button></div>
         </header>
         <header className="drive-header desktop-drive-header">
           <div><h1>{tabs.find((tab) => tab.value === filter)?.label}</h1><p>{channel.title} <span>·</span> {visibleItems.length} {visibleItems.length === 1 ? "item" : "items"}</p></div>
-          <div className="header-actions"><button className={`secondary-button month-toggle ${groupByMonth ? "active" : ""}`} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth} aria-label="Group files by month" title="Group files by month"><CalendarIcon /><span>{groupByMonth ? "Grouped" : "Group by month"}</span></button><button className="secondary-button sort-toggle" aria-label={`Order: ${sortOrder === "newest" ? "newest first" : "oldest first"}`} title={sortOrder === "newest" ? "Newest first" : "Oldest first"} onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon /><span>{sortOrder === "newest" ? "Newest first" : "Oldest first"}</span></button><label className="search-box"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label><button className="primary-button" onClick={() => fileInput.current?.click()}><UploadIcon />Upload</button></div>
+          <div className="header-actions"><button className={`secondary-button month-toggle ${groupByMonth ? "active" : ""}`} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth} aria-label="Group files by month" title="Group files by month"><CalendarIcon /><span>{groupByMonth ? "Grouped" : "Group by month"}</span></button><button className="secondary-button sort-toggle" aria-label={`Order: ${sortOrder === "newest" ? "newest first" : "oldest first"}`} title={sortOrder === "newest" ? "Newest first" : "Oldest first"} onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon /><span>{sortOrder === "newest" ? "Newest first" : "Oldest first"}</span></button><label className="search-box"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label><button className="primary-button" onClick={() => uploadSnapshot.total > 0 ? setShowUploadPanel(true) : setShowSyncChooser(true)}><UploadIcon />{syncActive ? `Syncing ${uploadSnapshot.done}/${uploadSnapshot.total}` : "Sync now"}</button></div>
         </header>
         <div className="mobile-channel-control"><ChannelSwitcher channel={channel} channels={channels} showPublic={showPublicChannels} onShowPublic={onShowPublicChannels} onSelect={onSelectChannel} onManage={onChangeChannel} /></div>
         <div className="mobile-tabs">{tabs.map(({ value, label }) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div>
+        <input ref={mediaInput} type="file" accept="image/*,video/*" multiple hidden onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void handleFiles(event.target.files); event.target.value = ""; }} />
         <input ref={fileInput} type="file" multiple hidden onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void handleFiles(event.target.files); event.target.value = ""; }} />
+        <input ref={directoryInput} type="file" multiple hidden {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void handleFiles(event.target.files); event.target.value = ""; }} />
         {error && <div className="error-banner drive-error" role="alert"><span>{error}</span><button onClick={() => setError("")}><CloseIcon /></button></div>}
         {loading ? <GallerySkeleton /> : visibleItems.length ? (
           <MemoryGallery items={visibleItems} channel={channel} groupByMonth={groupByMonth} memoryLimitMb={effectiveMemoryMb} hasMore={hasMore} paused={Boolean(selected)} onOpen={setSelected} onDownload={downloadItem} onDelete={deleteItem} />
-        ) : <EmptyState hasItems={items.length > 0} onUpload={() => fileInput.current?.click()} />}
+        ) : <EmptyState hasItems={items.length > 0} onUpload={() => setShowSyncChooser(true)} />}
         <div ref={sentinel} className="scroll-sentinel">{loadingMore && <><span className="spinner" />{search.trim() ? "Searching older files…" : "Loading older files…"}</>}{!hasMore && items.length > 0 && <span>You've reached the beginning.</span>}</div>
       </main>
       {dragging && <div className="drop-overlay" onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={onDrop}><div><UploadIcon /><h2>Drop to upload</h2><p>Files go directly to {channel.title}</p></div></div>}
-      {uploads.length > 0 && <UploadPanel entries={uploads} onCancel={() => uploadAbort.current?.abort()} onDismiss={() => setUploads([])} />}
+      {showSyncChooser && <SyncChooser supportsDirectory={directoryPickerSupported} onPhotos={() => mediaInput.current?.click()} onFiles={() => fileInput.current?.click()} onDirectory={() => directoryInput.current?.click()} onClose={() => setShowSyncChooser(false)} />}
+      {showUploadPanel && (uploadSnapshot.total > 0 || uploadSnapshot.skipped > 0) && <UploadPanel snapshot={uploadSnapshot} onPause={pauseUploads} onResume={() => void resumeUploads()} onSelectMore={() => setShowSyncChooser(true)} onDismiss={() => setShowUploadPanel(false)} />}
       {downloadEntry && <DownloadPanel entry={downloadEntry} onCancel={() => downloadAbort.current?.abort()} />}
       {selected && <Viewer key={selected.id} channel={channel} item={selected} previewLimitBytes={previewLimitBytes} onClose={() => setSelected(undefined)} onPrevious={previousItem ? () => setSelected(previousItem) : undefined} onNext={nextItem ? () => setSelected(nextItem) : undefined} onDownload={() => void downloadItem(selected)} onDelete={() => void deleteItem(selected)} />}
       {settings && <SettingsPanel account={account} memoryLimitMb={memoryLimitMb} effectiveMemoryMb={effectiveMemoryMb} onMemoryLimit={async (value) => { setMemoryLimitMb(value); await localStore.saveMemoryLimitMb(value); }} onClose={() => setSettings(false)} onForget={onForget} onLogOut={onLogOut} />}
@@ -879,14 +1310,30 @@ function GallerySkeleton() {
 }
 
 function EmptyState({ hasItems, onUpload }: { hasItems: boolean; onUpload: () => void }) {
-  return <div className="empty-state">{hasItems ? <SearchIcon /> : <CloudIcon />}<h2>{hasItems ? "No matches found" : "Your cloud is ready"}</h2><p>{hasItems ? "Try a different search or file type." : "Upload your first file. It will appear here and in your private Telegram channel."}</p>{!hasItems && <button className="primary-button" onClick={onUpload}><UploadIcon />Upload files</button>}</div>;
+  return <div className="empty-state">{hasItems ? <SearchIcon /> : <CloudIcon />}<h2>{hasItems ? "No matches found" : "Your cloud is ready"}</h2><p>{hasItems ? "Try a different search or file type." : "Sync your first files. They will appear here and in your private Telegram channel."}</p>{!hasItems && <button className="primary-button" onClick={onUpload}><UploadIcon />Sync now</button>}</div>;
 }
 
-function UploadPanel({ entries, onCancel, onDismiss }: { entries: UploadEntry[]; onCancel: () => void; onDismiss: () => void }) {
-  const active = entries.some((entry) => entry.status === "uploading" || entry.status === "waiting");
-  const failed = entries.some((entry) => entry.status === "error");
-  const title = active ? "Uploading files" : failed ? "Upload failed" : "Uploads complete";
-  return <aside className="upload-panel"><div className="panel-title"><div><strong>{title}</strong><small>{entries.length} {entries.length === 1 ? "file" : "files"}</small></div><button onClick={active ? onCancel : onDismiss} aria-label={active ? "Cancel uploads" : "Dismiss uploads"}><CloseIcon /></button></div>{entries.map((entry) => <div className="upload-row" key={entry.id}><FileIcon /><div><span><strong>{entry.name}</strong><small>{entry.status === "uploading" ? `${Math.round(entry.progress * 100)}%` : entry.status}</small></span><progress className={`progress ${entry.status}`} max={1} value={entry.progress} />{entry.error && <em>{entry.error}</em>}</div></div>)}</aside>;
+function SyncChooser({ supportsDirectory, onPhotos, onFiles, onDirectory, onClose }: {
+  supportsDirectory: boolean;
+  onPhotos: () => void;
+  onFiles: () => void;
+  onDirectory: () => void;
+  onClose: () => void;
+}) {
+  return <div className="modal-backdrop sync-backdrop" role="dialog" aria-modal="true" aria-label="Sync files now" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="sync-chooser"><header><div><span className="eyebrow">Foreground sync</span><h2>Sync now</h2></div><button onClick={onClose} aria-label="Close"><CloseIcon /></button></header><p>Select as many items as your device allows. Use <strong>Select All</strong> if the system picker offers it; otherwise choose a large batch and add more later. Every selection joins the same durable queue.</p><div className="sync-options"><button className="primary-button" onClick={onPhotos}><ImageIcon />Choose photos &amp; videos</button><button className="secondary-button" onClick={onFiles}><FileIcon />Choose files</button>{supportsDirectory && <button className="secondary-button" onClick={onDirectory}><FolderIcon />Choose a folder</button>}</div><div className="security-box"><ShieldIcon /><p><strong>No giant local buffer</strong>Files upload one at a time from bounded slices. Queue metadata is saved locally, but original file bytes are not copied into IndexedDB.</p></div><small className="sync-note">Keep this app open until the queue finishes. If it reloads, select the unfinished files again and completed matches will be skipped.</small></section></div>;
+}
+
+function UploadPanel({ snapshot, onPause, onResume, onSelectMore, onDismiss }: {
+  snapshot: UploadSnapshot;
+  onPause: () => void;
+  onResume: () => void;
+  onSelectMore: () => void;
+  onDismiss: () => void;
+}) {
+  const complete = snapshot.pending === 0 && snapshot.needsFile === 0;
+  const title = snapshot.paused ? "Sync paused" : snapshot.needsFile > 0 && snapshot.pending === 0 ? "Selection needed" : snapshot.pending > 0 ? "Syncing files" : snapshot.failed > 0 ? "Sync needs attention" : "Sync complete";
+  const processed = snapshot.done + snapshot.failed;
+  return <aside className="upload-panel" aria-live="polite"><div className="panel-title"><div><strong>{title}</strong><small>{snapshot.total.toLocaleString()} queued · {snapshot.done.toLocaleString()} uploaded{snapshot.skipped ? ` · ${snapshot.skipped.toLocaleString()} already synced` : ""}</small></div><button onClick={onDismiss} aria-label="Hide sync status"><CloseIcon /></button></div><div className="upload-summary"><div><span>{snapshot.currentName || (snapshot.needsFile ? `${snapshot.needsFile.toLocaleString()} files need to be selected again` : "Queue ready")}</span><strong>{snapshot.currentName ? `${Math.round(snapshot.currentProgress * 100)}%` : `${processed.toLocaleString()}/${snapshot.total.toLocaleString()}`}</strong></div>{snapshot.currentName && <progress className="progress current-upload-progress" max={1} value={snapshot.currentProgress} />}<progress className="progress" max={Math.max(1, snapshot.total)} value={Math.min(snapshot.total, processed)} />{snapshot.currentName && <small>Current file · attempt {snapshot.currentAttempt} of {MAX_UPLOAD_ATTEMPTS}</small>}<small>Overall queue · {processed.toLocaleString()} of {snapshot.total.toLocaleString()} processed</small></div><div className="upload-counts"><span><strong>{snapshot.pending.toLocaleString()}</strong> waiting</span><span><strong>{snapshot.done.toLocaleString()}</strong> done</span><span><strong>{snapshot.failed.toLocaleString()}</strong> failed</span></div>{snapshot.recent.map((entry) => <div className="upload-row" key={entry.id}><FileIcon /><div><span><strong title={entry.name}>{entry.name}</strong><small>{entry.status === "retrying" ? "retrying" : entry.status}</small></span>{entry.error && <em>{entry.error}</em>}</div></div>)}<div className="upload-actions">{snapshot.pending > 0 && !snapshot.paused && <button className="secondary-button" onClick={onPause}>Pause</button>}{(snapshot.paused || snapshot.failed > 0) && <button className="secondary-button" onClick={onResume}>{snapshot.failed > 0 ? "Retry failed" : "Resume"}</button>}{snapshot.needsFile > 0 && <button className="primary-button" onClick={onSelectMore}>Select unfinished files</button>}{complete && <button className="secondary-button" onClick={onSelectMore}>Sync more</button>}</div><p className="upload-foreground-note">Uploads retry up to {MAX_UPLOAD_ATTEMPTS} times and continue with the next file after a permanent failure. Keep the app in the foreground.</p></aside>;
 }
 
 function DownloadPanel({ entry, onCancel }: { entry: DownloadEntry; onCancel: () => void }) {

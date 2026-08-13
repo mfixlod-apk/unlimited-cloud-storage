@@ -235,6 +235,15 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
 .drop-overlay h2 { margin-bottom: 7px; }
 .drop-overlay p { margin: 0; opacity: .7; }
 .upload-panel { position: fixed; right: 22px; bottom: 22px; z-index: 12; width: min(380px, calc(100vw - 32px)); max-height: 55vh; padding: 16px; overflow: auto; border: 1px solid var(--line); border-radius: 15px; background: white; box-shadow: 0 20px 55px rgba(27,27,24,.19); }
+.sync-backdrop { place-items: center; padding: 24px; }
+.sync-chooser { width: min(480px, 100%); padding: 26px; border-radius: 18px; background: #fafaf7; box-shadow: 0 24px 80px rgba(20,20,18,.25); }
+.sync-chooser header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.sync-chooser header h2 { margin: 2px 0 0; }
+.sync-chooser header button { width: 36px; height: 36px; display: grid; flex: 0 0 auto; place-items: center; color: var(--muted); border-radius: 9px; background: var(--soft); }
+.sync-chooser > p { margin: 20px 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.sync-options { display: grid; gap: 9px; margin-bottom: 18px; }
+.sync-options button { width: 100%; }
+.sync-note { display: block; margin-top: 13px; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .download-panel { position: fixed; right: 22px; bottom: 22px; z-index: 13; width: min(390px, calc(100vw - 32px)); display: flex; align-items: flex-start; gap: 12px; padding: 15px; border: 1px solid var(--line); border-radius: 15px; background: white; box-shadow: 0 20px 55px rgba(27,27,24,.19); }
 .download-panel > svg { margin-top: 2px; color: var(--accent); }
 .download-panel > div { min-width: 0; flex: 1; display: grid; gap: 3px; }
@@ -253,6 +262,19 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
 .upload-row strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .upload-row small { color: var(--muted); font-size: 10px; text-transform: capitalize; }
 .upload-row em { color: var(--danger); font-size: 10px; font-style: normal; }
+.upload-summary { display: grid; gap: 3px; padding: 11px 12px; border-radius: 10px; background: var(--soft); }
+.upload-summary > div { min-width: 0; display: flex; justify-content: space-between; gap: 12px; font-size: 11px; }
+.upload-summary > div span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-summary > div strong { flex: 0 0 auto; }
+.upload-summary small { color: var(--muted); font-size: 9px; }
+.upload-summary .current-upload-progress::-webkit-progress-value { background: var(--accent); }
+.upload-summary .current-upload-progress::-moz-progress-bar { background: var(--accent); }
+.upload-counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin: 10px 0; }
+.upload-counts span { display: grid; gap: 1px; padding: 8px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; font-size: 9px; text-align: center; }
+.upload-counts strong { color: var(--ink); font-size: 12px; }
+.upload-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; margin-top: 14px; }
+.upload-actions button { min-height: 36px; padding: 0 12px; font-size: 11px; }
+.upload-foreground-note { margin: 10px 0 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
 .progress { width: 100%; height: 4px; display: block; appearance: none; margin: 7px 0 3px; overflow: hidden; border: 0; border-radius: 3px; background: #ecece7; }
 .progress::-webkit-progress-bar { background: #ecece7; }
 .progress::-webkit-progress-value { background: var(--accent); }
@@ -414,6 +436,9 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
   .viewer-nav.previous { left: 5px; }
   .viewer-nav.next { right: 5px; }
   .settings-panel { padding: 22px 17px; }
+  .sync-backdrop { padding: 0; align-items: end; }
+  .sync-chooser { padding: 23px 17px calc(23px + env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0; }
+  .upload-panel { max-height: 68vh; }
 }
 
 @media (prefers-reduced-motion: reduce) {

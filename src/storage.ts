@@ -6,6 +6,38 @@ export interface SavedConnection {
   session: string;
 }
 
+export type UploadQueueStatus = "queued" | "uploading" | "retrying" | "needs-file" | "done" | "failed";
+
+export interface UploadQueueRecord {
+  id: string;
+  channelId: string;
+  batchId: string;
+  fingerprint: string;
+  name: string;
+  type: string;
+  size: number;
+  lastModified: number;
+  relativePath: string;
+  status: UploadQueueStatus;
+  attempts: number;
+  error?: string;
+  createdAt: number;
+  completedAt?: number;
+}
+
+export interface UploadBatchRecord {
+  id: string;
+  channelId: string;
+  status: "active" | "completed";
+  fileCount: number;
+  totalBytes: number;
+  sourceOldest?: number;
+  sourceNewest?: number;
+  createdAt: number;
+  completedAt?: number;
+  checkpointSent: boolean;
+}
+
 interface CloudDb extends DBSchema {
   config: {
     key: string;
@@ -15,9 +47,19 @@ interface CloudDb extends DBSchema {
     key: string;
     value: Blob;
   };
+  uploadQueue: {
+    key: string;
+    value: UploadQueueRecord;
+    indexes: { "by-channel": string; "by-batch": string };
+  };
+  uploadBatches: {
+    key: string;
+    value: UploadBatchRecord;
+    indexes: { "by-channel": string };
+  };
 }
 
-const dbPromise = openDB<CloudDb>("unlimited-cloud-storage", 3, {
+const dbPromise = openDB<CloudDb>("unlimited-cloud-storage", 4, {
   upgrade(db, oldVersion, _newVersion, transaction) {
     if (oldVersion < 1) {
       db.createObjectStore("config");
@@ -31,6 +73,13 @@ const dbPromise = openDB<CloudDb>("unlimited-cloud-storage", 3, {
     if (oldVersion >= 2 && oldVersion < 3) {
       // Remove thumbnail blobs produced by the older non-retrying renderer.
       transaction.objectStore("thumbnails").clear();
+    }
+    if (oldVersion < 4) {
+      const queue = db.createObjectStore("uploadQueue", { keyPath: "id" });
+      queue.createIndex("by-channel", "channelId");
+      queue.createIndex("by-batch", "batchId");
+      const batches = db.createObjectStore("uploadBatches", { keyPath: "id" });
+      batches.createIndex("by-channel", "channelId");
     }
   },
 });
@@ -48,9 +97,34 @@ export const localStore = {
   saveThumbnail: (key: string, blob: Blob) => dbPromise.then((db) => db.put("thumbnails", blob, key)),
   deleteThumbnail: (key: string) => dbPromise.then((db) => db.delete("thumbnails", key)),
   clearThumbnails: () => dbPromise.then((db) => db.clear("thumbnails")),
+  getUploadRecords: (channelId: string) => dbPromise.then((db) => db.getAllFromIndex("uploadQueue", "by-channel", channelId)),
+  getUploadBatchRecords: (batchId: string) => dbPromise.then((db) => db.getAllFromIndex("uploadQueue", "by-batch", batchId)),
+  saveUploadRecord: (record: UploadQueueRecord) => dbPromise.then((db) => db.put("uploadQueue", record)),
+  saveUploadRecords: async (records: UploadQueueRecord[]) => {
+    if (!records.length) return;
+    const db = await dbPromise;
+    const tx = db.transaction("uploadQueue", "readwrite");
+    for (const record of records) void tx.store.put(record);
+    await tx.done;
+  },
+  getUploadBatches: (channelId: string) => dbPromise.then((db) => db.getAllFromIndex("uploadBatches", "by-channel", channelId)),
+  saveUploadBatch: (batch: UploadBatchRecord) => dbPromise.then((db) => db.put("uploadBatches", batch)),
+  saveUploadBatchWithRecords: async (batch: UploadBatchRecord, records: UploadQueueRecord[]) => {
+    const db = await dbPromise;
+    const tx = db.transaction(["uploadQueue", "uploadBatches"], "readwrite");
+    void tx.objectStore("uploadBatches").put(batch);
+    for (const record of records) void tx.objectStore("uploadQueue").put(record);
+    await tx.done;
+  },
   clearAll: async () => {
     const db = await dbPromise;
-    const tx = db.transaction(["config", "thumbnails"], "readwrite");
-    await Promise.all([tx.objectStore("config").clear(), tx.objectStore("thumbnails").clear(), tx.done]);
+    const tx = db.transaction(["config", "thumbnails", "uploadQueue", "uploadBatches"], "readwrite");
+    await Promise.all([
+      tx.objectStore("config").clear(),
+      tx.objectStore("thumbnails").clear(),
+      tx.objectStore("uploadQueue").clear(),
+      tx.objectStore("uploadBatches").clear(),
+      tx.done,
+    ]);
   },
 };
