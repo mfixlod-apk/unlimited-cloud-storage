@@ -98,6 +98,11 @@ export const localStore = {
   savePreventDuplicateNames: (value: boolean) => dbPromise.then((db) => db.put("config", value, "preventDuplicateNames")),
   getDatePrefixUploads: () => dbPromise.then(async (db) => Boolean(await db.get("config", "datePrefixUploads"))),
   saveDatePrefixUploads: (value: boolean) => dbPromise.then((db) => db.put("config", value, "datePrefixUploads")),
+  getTheme: () => dbPromise.then(async (db) => {
+    const value = await db.get("config", "theme");
+    return value === "dark" || value === "light" ? value : undefined;
+  }),
+  saveTheme: (value: "light" | "dark") => dbPromise.then((db) => db.put("config", value, "theme")),
   getThumbnail: (key: string) => dbPromise.then((db) => db.get("thumbnails", key)),
   saveThumbnail: (key: string, blob: Blob) => dbPromise.then((db) => db.put("thumbnails", blob, key)),
   deleteThumbnail: (key: string) => dbPromise.then((db) => db.delete("thumbnails", key)),

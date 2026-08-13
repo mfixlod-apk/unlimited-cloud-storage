@@ -19,6 +19,7 @@ The app does not provide end-to-end or zero-knowledge encryption. Telegram recei
 | `memoryLimitMb` | `number` | User-selected gallery/preview memory budget; defaults to 1024 MB |
 | `preventDuplicateNames` | `boolean` | Skip newly selected uploads whose normalized outgoing filename is already known in the selected channel/local queue; defaults to false |
 | `datePrefixUploads` | `boolean` | Prefix new outgoing filenames with `YYYY-MM-DD__` using the picker-provided file date; defaults to false |
+| `theme` | `"light"` or `"dark"` | Browser appearance preference; defaults to the operating-system preference until explicitly selected |
 
 ### `thumbnails`
 
@@ -72,6 +73,7 @@ These operations must remain distinct:
 - **Log out of Telegram** calls Teleproto's logout operation first, revoking the current authorization, then disconnects and clears IndexedDB.
 - **Clear thumbnail cache** removes only thumbnail blobs. It must not remove connection or channel configuration.
 - **Forget this browser** also clears upload queue and batch metadata. It never deletes files or checkpoint messages from Telegram.
+- The non-sensitive appearance preference is restored after Forget/Logout cleanup so changing account state does not unexpectedly change the interface theme.
 
 If logout cannot reach Telegram, the current code still disconnects and clears local state. The user may need to revoke the device manually from Telegram's Devices screen.
 

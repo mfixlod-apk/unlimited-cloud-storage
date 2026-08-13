@@ -30,3 +30,7 @@ export const EyeIcon = (props: Props) => <Icon {...props}><path d="M2 12s4-7 10-
 export const EyeOffIcon = (props: Props) => <Icon {...props}><path d="m3 3 18 18M10.6 10.7a2 2 0 0 0 2.7 2.7M9.9 5.2A9.8 9.8 0 0 1 12 5c6 0 10 7 10 7a16 16 0 0 1-2.1 2.8M6.6 6.6C3.8 8.5 2 12 2 12s4 7 10 7a9.7 9.7 0 0 0 3.4-.6"/></Icon>;
 export const PlusIcon = (props: Props) => <Icon {...props}><path d="M12 5v14M5 12h14"/></Icon>;
 export const CalendarIcon = (props: Props) => <Icon {...props}><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></Icon>;
+export const TelegramIcon = (props: Props) => <Icon {...props}><path d="m3 11.2 17.2-7-3.1 15.6-5.2-4.1-2.7 2.6.4-4.7 8.2-6.2-10.1 5.1Z"/></Icon>;
+export const BrowserIcon = (props: Props) => <Icon {...props}><rect x="2.5" y="4" width="19" height="16" rx="2"/><path d="M2.5 8h19M6 6h.01M9 6h.01"/></Icon>;
+export const PhoneIcon = (props: Props) => <Icon {...props}><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 5h4M11 19h2"/></Icon>;
+export const KeyIcon = (props: Props) => <Icon {...props}><circle cx="7.5" cy="15.5" r="4"/><path d="m10.5 12.5 9-9M16 7l2 2M13.5 9.5l2 2"/></Icon>;

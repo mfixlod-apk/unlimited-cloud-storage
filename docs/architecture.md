@@ -39,17 +39,26 @@ boot
           └── saved channel available ───► drive
 
 credentials ─► auth ─► channels ─► drive
+                                  ◄─► home
 ```
 
 Important screen components:
 
-- `CredentialsScreen` validates the user's API ID and hash.
+- `LandingScreen` presents the product overview and validates the user's API ID and hash, or shows the connected-account actions when opened from the drive.
 - `AuthScreen` coordinates QR, phone-code, and 2FA callbacks.
 - `ChannelScreen` displays eligible broadcast channels with an opt-in public-channel toggle.
 - `DriveScreen` owns lightweight history metadata, filters, month grouping, uploads, bulk selection, viewer state, and infinite scrolling.
 - `SettingsPanel` exposes upload naming/duplicate preferences, the memory budget, cache clearing, device forgetting, and Telegram logout.
 
 On mobile, the active channel switcher sits in the title/navigation row beside the current file category, above search and sort/filter tools. Sync and Settings remain compact actions in the top app bar. The switcher reuses the same channel dropdown as desktop, including inline private-channel creation and the public-channel visibility toggle.
+
+`App` owns the `light | dark` appearance state so the same theme covers onboarding, authentication, channel choice, the drive, and overlays. The saved preference is loaded from `localStore`, applied as `data-theme` on the root document element, and reflected in the browser theme-color metadata. Theme tokens live at the top of `styles.css`; components should use those tokens rather than adding theme-specific inline values.
+
+Desktop credential onboarding is a viewport-height split layout that deliberately gives the editorial pane more space than the compact credential form. The editorial pane is the only independently scrollable side; the form stays fixed on the right. Its content is divided into three semantic sections: the direct browser-to-Telegram path, everyday device/configuration use, and local-session control. The hero introduces that path in plain text rather than repeating it in a separate badge or callout. Below 900 px both panes return to normal document flow so phone and tablet users get one accessible page rather than nested scrolling.
+
+`home` is also available after authentication. Clicking either in-drive logo changes only the visible application stage; it does not disconnect or revoke the Telegram client. When a selected channel exists, the mounted `DriveScreen` remains in a hidden host behind the home page so active foreground transfers, picker `File` references, viewer/gallery state, and the previous scroll position survive the round trip. Explicit **Log out** or **Sign in to another account** actions still revoke the current Telegram authorization before returning to credential entry.
+
+On mobile the landing navigation is fixed to the viewport. Its signed-out **Log in** button scrolls to the credentials section, and its authenticated **Open drive** button returns to the preserved workspace. The same navigation and marketing content is used at desktop and phone widths; only its layout and scrolling behavior change.
 
 The UI is currently kept in one file because the product is still small. If `App.tsx` grows substantially, split by screen while keeping orchestration in `App` and Telegram operations behind `TelegramDrive`.
 

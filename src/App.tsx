@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent, type SyntheticEvent } from "react";
 import QRCode from "qrcode";
 import {
+  BrowserIcon,
   CalendarIcon,
   CheckIcon,
   ChevronIcon,
@@ -13,13 +14,16 @@ import {
   FolderIcon,
   GridIcon,
   ImageIcon,
+  KeyIcon,
   MoreIcon,
   MusicIcon,
   PlusIcon,
+  PhoneIcon,
   RefreshIcon,
   SearchIcon,
   SettingsIcon,
   ShieldIcon,
+  TelegramIcon,
   TrashIcon,
   UploadIcon,
   VideoIcon,
@@ -39,9 +43,10 @@ import {
   type TelegramCredentials,
 } from "./telegram";
 
-type Stage = "boot" | "credentials" | "auth" | "channels" | "drive";
+type Stage = "boot" | "credentials" | "auth" | "channels" | "drive" | "home";
 type Filter = "all" | ItemKind;
 type SortOrder = "newest" | "oldest";
+type Theme = "light" | "dark";
 
 interface NativeFileWritable {
   write(chunk: Uint8Array<ArrayBuffer>): Promise<void>;
@@ -190,6 +195,7 @@ const uploadStatusBucket = (status: UploadQueueStatus) => {
 };
 
 export default function App() {
+  const [theme, setTheme] = useState<Theme>(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   const [stage, setStage] = useState<Stage>("boot");
   const [credentials, setCredentials] = useState<TelegramCredentials>();
   const [remember, setRemember] = useState(false);
@@ -198,6 +204,22 @@ export default function App() {
   const [channel, setChannel] = useState<CloudChannel>();
   const [showPublicChannels, setShowPublicChannels] = useState(false);
   const [error, setError] = useState("");
+  const driveScrollPosition = useRef(0);
+
+  useEffect(() => {
+    void localStore.getTheme().then((saved) => { if (saved) setTheme(saved); });
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#181816" : "#f7f7f4");
+  }, [theme]);
+
+  const changeTheme = async (next: Theme) => {
+    setTheme(next);
+    await localStore.saveTheme(next);
+  };
 
   const prepareAccount = useCallback(async () => {
     const [me, availableChannels, savedChannelId] = await Promise.all([
@@ -285,9 +307,22 @@ export default function App() {
     setChannels(await telegramDrive.listPrivateChannels());
   };
 
+  const openHome = () => {
+    if (stage === "drive") driveScrollPosition.current = window.scrollY;
+    setStage("home");
+    window.setTimeout(() => window.scrollTo({ top: 0 }), 0);
+  };
+
+  const openWorkspace = () => {
+    const nextStage = channel ? "drive" : "channels";
+    setStage(nextStage);
+    if (nextStage === "drive") window.setTimeout(() => window.scrollTo({ top: driveScrollPosition.current }), 0);
+  };
+
   const forgetDevice = async () => {
     await telegramDrive.disconnect();
     await localStore.clearAll();
+    await localStore.saveTheme(theme);
     setCredentials(undefined);
     setAccount(undefined);
     setChannels([]);
@@ -298,6 +333,7 @@ export default function App() {
   const logOut = async () => {
     try { await telegramDrive.logOut(); } catch { await telegramDrive.disconnect(); }
     await localStore.clearAll();
+    await localStore.saveTheme(theme);
     setCredentials(undefined);
     setAccount(undefined);
     setChannel(undefined);
@@ -305,39 +341,53 @@ export default function App() {
   };
 
   if (stage === "boot") return <LoadingScreen />;
-  if (stage === "credentials") return <CredentialsScreen initial={credentials} externalError={error} onContinue={handleCredentials} />;
+  if (stage === "credentials") return <LandingScreen initial={credentials} externalError={error} onContinue={handleCredentials} />;
   if (stage === "auth") return <AuthScreen onComplete={handleAuthenticated} onBack={() => { telegramDrive.disconnect(); setStage("credentials"); }} />;
-  if (stage === "channels") return <ChannelScreen account={account} channels={channels} showPublic={showPublicChannels} onShowPublic={setShowPublicChannels} onChoose={chooseChannel} onCreate={createChannel} onRefresh={refreshChannelList} onBack={logOut} />;
+  if (stage === "channels") return <ChannelScreen account={account} channels={channels} showPublic={showPublicChannels} onShowPublic={setShowPublicChannels} onChoose={chooseChannel} onCreate={createChannel} onRefresh={refreshChannelList} onHome={openHome} onBack={logOut} />;
+  if (stage === "home" && account && !channel) return <LandingScreen initial={credentials} externalError="" account={account} onContinue={handleCredentials} onOpenWorkspace={openWorkspace} onLogOut={logOut} onSwitchAccount={logOut} />;
   if (!channel) return null;
   return (
-    <DriveScreen
-      key={channel.id}
-      account={account}
-      channel={channel}
-      channels={channels}
-      showPublicChannels={showPublicChannels}
-      onShowPublicChannels={setShowPublicChannels}
-      onSelectChannel={chooseChannel}
-      onCreateChannel={createChannel}
-      onChangeChannel={() => setStage("channels")}
-      onForget={forgetDevice}
-      onLogOut={logOut}
-    />
+    <>
+      <div className="drive-host" hidden={stage === "home"}>
+        <DriveScreen
+          key={channel.id}
+          account={account}
+          channel={channel}
+          channels={channels}
+          showPublicChannels={showPublicChannels}
+          onShowPublicChannels={setShowPublicChannels}
+          onSelectChannel={chooseChannel}
+          onCreateChannel={createChannel}
+          onChangeChannel={() => setStage("channels")}
+          onForget={forgetDevice}
+          onLogOut={logOut}
+          onHome={openHome}
+          theme={theme}
+          onTheme={changeTheme}
+        />
+      </div>
+      {stage === "home" && account && <LandingScreen initial={credentials} externalError="" account={account} onContinue={handleCredentials} onOpenWorkspace={openWorkspace} onLogOut={logOut} onSwitchAccount={logOut} />}
+    </>
   );
 }
 
-function Brand() {
-  return <div className="brand"><span className="brand-mark"><CloudIcon /></span><span>Unlimited Cloud<br />Storage</span></div>;
+function Brand({ onClick }: { onClick?: () => void }) {
+  const content = <><span className="brand-mark"><CloudIcon /></span><span>Unlimited Cloud<br />Storage</span></>;
+  return onClick ? <button className="brand brand-button" onClick={onClick} aria-label="Go to home page">{content}</button> : <div className="brand">{content}</div>;
 }
 
 function LoadingScreen() {
   return <main className="center-screen"><Brand /><div className="loading-line"><span /></div><p className="muted">Opening your private cloud…</p></main>;
 }
 
-function CredentialsScreen({ initial, externalError, onContinue }: {
+function LandingScreen({ initial, externalError, account, onContinue, onOpenWorkspace, onLogOut, onSwitchAccount }: {
   initial?: TelegramCredentials;
   externalError: string;
+  account?: any;
   onContinue: (credentials: TelegramCredentials, remember: boolean) => Promise<void>;
+  onOpenWorkspace?: () => void;
+  onLogOut?: () => Promise<void>;
+  onSwitchAccount?: () => Promise<void>;
 }) {
   const [apiId, setApiId] = useState(initial?.apiId ? String(initial.apiId) : "");
   const [apiHash, setApiHash] = useState(initial?.apiHash || "");
@@ -345,6 +395,14 @@ function CredentialsScreen({ initial, externalError, onContinue }: {
   const [remember, setRemember] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const loginTarget = useRef<HTMLElement>(null);
+  const homeScrollTarget = useRef<HTMLElement>(null);
+
+  const scrollToLogin = () => loginTarget.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const scrollHome = () => {
+    homeScrollTarget.current?.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -360,17 +418,35 @@ function CredentialsScreen({ initial, externalError, onContinue }: {
 
   return (
     <main className="onboarding-shell">
-      <section className="onboarding-copy">
-        <Brand />
-        <div className="intro-copy">
-          <span className="eyebrow">Your files. Your account.</span>
-          <h1>A quiet place for everything.</h1>
-          <p>Turn a private Telegram channel into a clean personal drive. Your files travel directly between this browser and Telegram—there is no middleman server.</p>
+      <section className="onboarding-copy" ref={homeScrollTarget}>
+        <div className="landing-inner">
+          <nav className="landing-nav" aria-label="Home"><Brand onClick={scrollHome} /><button className="secondary-button landing-login-button" onClick={account ? onOpenWorkspace : scrollToLogin}>{account ? "Open drive" : "Log in"}</button></nav>
+          <div className="intro-copy">
+            <h1>A simple, secure place for your backups.</h1>
+            <p>Use a private Telegram channel as a clean personal drive. Your files move directly between this browser and Telegram—there is no application server, shared storage account, or upload relay in the middle.</p>
+          </div>
+          <section className="landing-story landing-connection" aria-labelledby="landing-connection-title">
+            <header><span className="eyebrow">One direct connection</span><h2 id="landing-connection-title">Your browser talks to Telegram. That's the whole path.</h2></header>
+            <div className="connection-path" aria-label="Browser connects directly to a private Telegram channel"><div><span><BrowserIcon /></span><strong>This browser</strong><small>Your session stays here</small></div><i><ChevronIcon /></i><div><span><TelegramIcon /></span><strong>Telegram</strong><small>Your private channel</small></div></div>
+            <p className="story-note">Files are stored as Telegram channel messages, so another signed-in device can rebuild the gallery from channel history.</p>
+          </section>
+          <section className="landing-story landing-everyday" aria-labelledby="landing-everyday-title">
+            <header><span className="eyebrow">Made for everyday use</span><h2 id="landing-everyday-title">A small app that adjusts to the way you use it.</h2></header>
+            <div className="everyday-pair">
+              <article><span><PhoneIcon /></span><div><strong>Keep it close</strong><p>Add it to your home screen, then use the same clean gallery on phone or desktop.</p></div></article>
+              <article><span><SettingsIcon /></span><div><strong>Make it yours</strong><p>Choose the storage channel, memory budget, file naming, ordering, and duplicate rules.</p></div></article>
+            </div>
+          </section>
+          <section className="landing-story landing-control" aria-labelledby="landing-control-title">
+            <header><span className="eyebrow">Leave on your terms</span><h2 id="landing-control-title">Stay signed in—or leave no local session behind.</h2></header>
+            <div className="control-list"><article><ShieldIcon /><span><strong>No tracking layer</strong><small>No analytics, application logs, or secrets in URLs.</small></span></article><article><KeyIcon /><span><strong>You choose persistence</strong><small>Keeping the Telegram session in this browser is optional.</small></span></article><article><CloseIcon /><span><strong>Forget or revoke</strong><small>Clear only this browser, or explicitly log out of Telegram.</small></span></article></div>
+            <div className="privacy-note"><ShieldIcon /><span><strong>Clear security boundary</strong>Telegram can process files stored in its channels. Encrypt sensitive material before upload if you need zero-knowledge storage.</span></div>
+          </section>
+          <small className="landing-disclaimer">Independent project. Not affiliated with or endorsed by Telegram.</small>
         </div>
-        <div className="privacy-note"><ShieldIcon /><span><strong>Local by design</strong>Your credentials and session are handled in this browser and are not sent to an app server, logs, URLs, or analytics.</span></div>
       </section>
-      <section className="onboarding-panel">
-        <form className="auth-card" onSubmit={submit}>
+      <section className="onboarding-panel" id="telegram-login" ref={loginTarget}>
+        {account ? <div className="auth-card signed-in-card"><div className="step-label">Telegram connected</div><span className="signed-in-avatar">{userName(account).slice(0, 1).toUpperCase()}</span><h2>You're already signed in.</h2><p className="muted">Connected as <strong>{userName(account)}</strong>. Opening this home page did not disconnect your account.</p><button className="primary-button wide" onClick={onOpenWorkspace}>Open your drive <ChevronIcon /></button><div className="signed-in-actions"><button className="secondary-button" onClick={() => void onSwitchAccount?.()}>Sign in to another account</button><button className="text-button danger-text" onClick={() => void onLogOut?.()}>Log out</button></div><p className="fine-print">Signing in to another account first revokes this app's current Telegram session.</p></div> : <form className="auth-card" onSubmit={submit}>
           <div className="step-label">Step 1 of 3</div>
           <h2>Connect Telegram</h2>
           <p className="muted">Use your own Telegram API credentials. This app has no shared or hidden keys.</p>
@@ -381,7 +457,7 @@ function CredentialsScreen({ initial, externalError, onContinue }: {
           <button className="primary-button wide" disabled={busy}>{busy ? <><span className="spinner" />Connecting…</> : <>Continue <ChevronIcon /></>}</button>
           <a className="helper-link" href="https://my.telegram.org/apps" target="_blank" rel="noreferrer noopener">Where do I find these credentials?</a>
           <p className="fine-print">Use only on a device and browser profile you trust. Telegram storage is private-channel storage, not zero-knowledge encryption.</p>
-        </form>
+        </form>}
       </section>
     </main>
   );
@@ -526,7 +602,7 @@ function AuthScreen({ onComplete, onBack }: { onComplete: () => Promise<void>; o
   );
 }
 
-function ChannelScreen({ account, channels, showPublic, onShowPublic, onChoose, onCreate, onRefresh, onBack }: {
+function ChannelScreen({ account, channels, showPublic, onShowPublic, onChoose, onCreate, onRefresh, onHome, onBack }: {
   account: any;
   channels: CloudChannel[];
   showPublic: boolean;
@@ -534,6 +610,7 @@ function ChannelScreen({ account, channels, showPublic, onShowPublic, onChoose, 
   onChoose: (channel: CloudChannel) => Promise<void>;
   onCreate: (title: string) => Promise<CloudChannel>;
   onRefresh: () => Promise<void>;
+  onHome: () => void;
   onBack: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
@@ -564,7 +641,7 @@ function ChannelScreen({ account, channels, showPublic, onShowPublic, onChoose, 
   };
   return (
     <main className="simple-shell">
-      <div className="top-brand"><Brand /><button className="text-button" onClick={onBack}>Sign out</button></div>
+      <div className="top-brand"><Brand onClick={onHome} /><button className="text-button" onClick={onBack}>Sign out</button></div>
       <section className="channel-card">
         <div className="step-label">Step 3 of 3</div>
         <h2>Choose your storage</h2>
@@ -617,17 +694,20 @@ const emptyUploadSnapshot = (): UploadSnapshot => ({
   recent: [],
 });
 
-function DriveScreen({ account, channel, channels, showPublicChannels, onShowPublicChannels, onSelectChannel, onCreateChannel, onChangeChannel, onForget, onLogOut }: {
+function DriveScreen({ account, channel, channels, showPublicChannels, theme, onShowPublicChannels, onSelectChannel, onCreateChannel, onChangeChannel, onForget, onLogOut, onHome, onTheme }: {
   account: any;
   channel: CloudChannel;
   channels: CloudChannel[];
   showPublicChannels: boolean;
+  theme: Theme;
   onShowPublicChannels: (value: boolean) => void;
   onSelectChannel: (channel: CloudChannel) => Promise<void>;
   onCreateChannel: (title: string) => Promise<CloudChannel>;
   onChangeChannel: () => void;
   onForget: () => Promise<void>;
   onLogOut: () => Promise<void>;
+  onHome: () => void;
+  onTheme: (theme: Theme) => Promise<void>;
 }) {
   const [items, setItems] = useState<CloudItem[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
@@ -1364,14 +1444,14 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
   return (
     <div className="app-shell" onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}>
       <aside className="sidebar">
-        <Brand />
+        <Brand onClick={onHome} />
         <ChannelSwitcher channel={channel} channels={channels} showPublic={showPublicChannels} onShowPublic={onShowPublicChannels} onSelect={onSelectChannel} onCreate={onCreateChannel} onManage={onChangeChannel} />
         <nav>{tabs.map(({ value, label, icon: TabIcon }) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}><TabIcon />{label}<span>{value === "all" ? `${items.length}${hasMore ? "+" : ""}` : items.filter((item) => item.kind === value).length}</span></button>)}</nav>
         <div className="sidebar-foot"><button onClick={() => setSettings(true)}><SettingsIcon />Settings</button><div className="account-chip"><span>{userName(account).slice(0, 1).toUpperCase()}</span><div><strong>{userName(account)}</strong><small><i className={online ? "online" : ""} />{online ? "Connected" : "Offline"}</small></div></div></div>
       </aside>
       <main className="drive-main">
         <header className="mobile-drive-nav">
-          <div className="mobile-app-bar"><span className="mobile-wordmark"><CloudIcon />Unlimited Cloud Storage</span><div className="mobile-app-actions"><button className="primary-button mobile-upload" onClick={() => void openSync()} aria-label="Sync files now"><UploadIcon /><span>{syncActive ? "Syncing" : "Sync now"}</span></button><button className="mobile-settings" onClick={() => setSettings(true)} aria-label="Open settings"><SettingsIcon /></button></div></div>
+          <div className="mobile-app-bar"><button className="mobile-wordmark" onClick={onHome} aria-label="Go to home page"><CloudIcon />Unlimited Cloud Storage</button><div className="mobile-app-actions"><button className="primary-button mobile-upload" onClick={() => void openSync()} aria-label="Sync files now"><UploadIcon /><span>{syncActive ? "Syncing" : "Sync now"}</span></button><button className="mobile-settings" onClick={() => setSettings(true)} aria-label="Open settings"><SettingsIcon /></button></div></div>
           <div className="mobile-title-row"><div className="mobile-title-copy"><h1>{tabs.find((tab) => tab.value === filter)?.label}</h1><p>{visibleItems.length}{hasMore ? "+" : ""} {visibleItems.length === 1 ? "item" : "items"}</p></div><div className="mobile-channel-control"><ChannelSwitcher channel={channel} channels={channels} showPublic={showPublicChannels} onShowPublic={onShowPublicChannels} onSelect={onSelectChannel} onCreate={onCreateChannel} onManage={onChangeChannel} /></div></div>
           <label className="search-box mobile-search"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label>
           <div className="mobile-tools"><button className={groupByMonth ? "active" : ""} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth}><CalendarIcon />{groupByMonth ? "Grouped" : "By month"}</button><button onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon />{sortOrder === "newest" ? "Newest" : "Oldest"}</button><button className={selectionMode ? "active" : ""} onClick={toggleSelectionMode} aria-pressed={selectionMode}><CheckIcon />{selectionMode ? "Cancel" : "Select"}</button></div>
@@ -1396,7 +1476,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
       {selectionMode && <BulkActionBar count={checkedItems.length} allVisibleSelected={allVisibleChecked} busy={bulkBusy} onToggleAll={toggleAllVisible} onDownload={() => void downloadSelected()} onDelete={() => void deleteSelected()} onCancel={() => { setSelectionMode(false); setCheckedIds(new Set()); }} />}
       {downloadEntry && <DownloadPanel entry={downloadEntry} onCancel={() => { bulkCancelRequested.current = bulkBusy; downloadAbort.current?.abort(); }} />}
       {selected && <Viewer key={selected.id} channel={channel} item={selected} previewLimitBytes={previewLimitBytes} onClose={() => setSelected(undefined)} onPrevious={previousItem ? () => setSelected(previousItem) : undefined} onNext={nextItem ? () => setSelected(nextItem) : undefined} onDownload={() => void downloadItem(selected)} onDelete={() => void deleteItem(selected)} />}
-      {settings && <SettingsPanel account={account} memoryLimitMb={memoryLimitMb} effectiveMemoryMb={effectiveMemoryMb} preventDuplicateNames={preventDuplicateNames} datePrefixUploads={datePrefixUploads} onMemoryLimit={async (value) => { setMemoryLimitMb(value); await localStore.saveMemoryLimitMb(value); }} onPreventDuplicateNames={async (value) => { setPreventDuplicateNames(value); await localStore.savePreventDuplicateNames(value); }} onDatePrefixUploads={async (value) => { setDatePrefixUploads(value); await localStore.saveDatePrefixUploads(value); }} onClose={() => setSettings(false)} onForget={onForget} onLogOut={onLogOut} />}
+      {settings && <SettingsPanel account={account} theme={theme} memoryLimitMb={memoryLimitMb} effectiveMemoryMb={effectiveMemoryMb} preventDuplicateNames={preventDuplicateNames} datePrefixUploads={datePrefixUploads} onTheme={onTheme} onMemoryLimit={async (value) => { setMemoryLimitMb(value); await localStore.saveMemoryLimitMb(value); }} onPreventDuplicateNames={async (value) => { setPreventDuplicateNames(value); await localStore.savePreventDuplicateNames(value); }} onDatePrefixUploads={async (value) => { setDatePrefixUploads(value); await localStore.saveDatePrefixUploads(value); }} onClose={() => setSettings(false)} onForget={onForget} onLogOut={onLogOut} />}
     </div>
   );
 }
@@ -1714,12 +1794,14 @@ function ProgressivePlayer({ kind, src, poster, streaming, onError }: { kind: "v
   return <div className={`progressive-player ${kind}`}>{kind === "video" ? <video {...common} poster={poster || undefined} playsInline /> : <audio {...common} />}{streaming && <div className="stream-buffer" aria-label="Streaming buffer"><span>Buffered</span><progress max={duration || 1} value={Math.min(buffered, duration || buffered)} /><small>{duration > 0 ? `${Math.round(buffered)}s` : "Connecting…"}</small></div>}</div>;
 }
 
-function SettingsPanel({ account, memoryLimitMb, effectiveMemoryMb, preventDuplicateNames, datePrefixUploads, onMemoryLimit, onPreventDuplicateNames, onDatePrefixUploads, onClose, onForget, onLogOut }: {
+function SettingsPanel({ account, theme, memoryLimitMb, effectiveMemoryMb, preventDuplicateNames, datePrefixUploads, onTheme, onMemoryLimit, onPreventDuplicateNames, onDatePrefixUploads, onClose, onForget, onLogOut }: {
   account: any;
+  theme: Theme;
   memoryLimitMb: number;
   effectiveMemoryMb: number;
   preventDuplicateNames: boolean;
   datePrefixUploads: boolean;
+  onTheme: (theme: Theme) => Promise<void>;
   onMemoryLimit: (value: number) => Promise<void>;
   onPreventDuplicateNames: (value: boolean) => Promise<void>;
   onDatePrefixUploads: (value: boolean) => Promise<void>;
@@ -1733,6 +1815,7 @@ function SettingsPanel({ account, memoryLimitMb, effectiveMemoryMb, preventDupli
     <aside className="settings-panel">
       <header><div><span className="eyebrow">Preferences</span><h2>Settings</h2></div><button onClick={onClose}><CloseIcon /></button></header>
       <section><h3>Account</h3><div className="settings-row"><span className="avatar">{userName(account).slice(0, 1).toUpperCase()}</span><div><strong>{userName(account)}</strong><small>Telegram account</small></div></div></section>
+      <section><h3>Appearance</h3><label className="settings-toggle"><span><strong>Dark mode</strong><small>Use the darker interface on this browser.</small></span><input type="checkbox" checked={theme === "dark"} onChange={(event) => void onTheme(event.target.checked ? "dark" : "light")} /></label></section>
       <section><h3>Uploads</h3><label className="settings-toggle"><span><strong>Prevent duplicate filenames</strong><small>Skip a file when the same name is already discovered in this channel or its local sync queue. Unloaded older history may not be checked.</small></span><input type="checkbox" checked={preventDuplicateNames} onChange={(event) => void onPreventDuplicateNames(event.target.checked)} /></label><label className="settings-toggle"><span><strong>Prefix names with media date</strong><small>Upload as YYYY-MM-DD__filename using the date supplied by the device picker. Existing Telegram files are unchanged.</small></span><input type="checkbox" checked={datePrefixUploads} onChange={(event) => void onDatePrefixUploads(event.target.checked)} /></label></section>
       <section><h3>Performance</h3><label className="memory-setting"><span><strong>Memory limit</strong><small>Controls off-screen gallery preloading and full-file preview fallback.</small></span><select value={memoryLimitMb} onChange={(event) => void onMemoryLimit(Number(event.target.value))}><option value={256}>256 MB</option><option value={512}>512 MB</option><option value={1024}>1 GB (default)</option><option value={2048}>2 GB</option></select><em>{effectiveMemoryMb < memoryLimitMb ? `Adjusted to ${formatSize(effectiveMemoryMb * 1024 * 1024)} for this device.` : "The browser may use less when content is off screen."}</em></label></section>
       <section><h3>Privacy & device</h3><div className="security-box"><ShieldIcon /><p><strong>Browser-only connection</strong>Credentials and session data stay in IndexedDB on this browser profile. Files are not end-to-end encrypted by this app.</p></div><button className="settings-action" onClick={clearCache}><RefreshIcon /><span><strong>{cleared ? "Thumbnail cache cleared" : "Clear thumbnail cache"}</strong><small>Original files remain in Telegram</small></span>{cleared && <CheckIcon />}</button><button className="settings-action" onClick={() => void onForget()}><CloseIcon /><span><strong>Forget this browser</strong><small>Remove local credentials, session, and cache only</small></span></button></section>

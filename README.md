@@ -19,6 +19,7 @@ Developer documentation is indexed in [`docs/README.md`](docs/README.md).
 - Exact-byte image/document storage, broad video/audio uploads, progressive video/audio playback with seeking and a buffer bar, single/bulk downloads, and confirmed permanent deletion
 - Gallery selection mode with select-all-visible, multi-file download, and confirmed batch deletion
 - Responsive desktop/mobile UI with a safe-area-aware phone navigation bar and installable PWA shell
+- Persisted light/dark appearance with a three-part, responsive product and security overview
 - Separate controls for clearing thumbnails, forgetting a browser, and revoking the Telegram session
 
 ## Run locally
@@ -31,6 +32,10 @@ npm run dev
 ```
 
 Open the local address shown by Vite. Obtain personal API credentials from [my.telegram.org/apps](https://my.telegram.org/apps), then use QR login or the phone fallback.
+
+On desktop onboarding, the compact Telegram connection form remains fixed while the wider product overview on the left scrolls independently through direct-connection, everyday-use, and session-control sections. Dark mode can be changed later in **Settings → Appearance** and is retained on this browser.
+
+On phones, the same home page has a persistent top bar: **Log in** jumps to the Telegram form, while an authenticated session shows **Open drive**. From inside the drive, selecting the Unlimited Cloud Storage logo returns home without disconnecting Telegram or discarding the active drive state.
 
 For QR login in the official Telegram app, open **Settings → Devices → Link Desktop Device** and scan the code shown by Unlimited Cloud Storage.
 

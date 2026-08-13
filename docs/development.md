@@ -199,6 +199,11 @@ There is currently no automated Telegram integration suite because it would requ
 
 - widths near 390 px, 580 px, 900 px, and desktop;
 - on mobile, the channel switcher remains beside the current category above search/tools, its dropdown stays inside the viewport, and Sync/Settings remain reachable in the top app bar;
+- light and dark appearance on onboarding, authentication, channel selection, the gallery, menus, transfer panels, settings, and destructive confirmations;
+- desktop onboarding scrolls only its left product pane while the right credential form remains stationary; below 900 px it returns to one normal scrolling document;
+- the mobile home navbar stays visible while scrolling, **Log in** reaches the credential form, and **Open drive** restores an authenticated workspace;
+- desktop sidebar and mobile wordmark logos open home without logging out, losing the drive scroll position, or dropping active in-memory upload file references;
+- authenticated home shows the current Telegram account and requires an explicit click before logout/account switching;
 - keyboard navigation through forms and primary actions;
 - visible focus states;
 - dialog close controls and backdrop behavior;
