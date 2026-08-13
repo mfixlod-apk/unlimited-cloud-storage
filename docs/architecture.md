@@ -168,6 +168,8 @@ IndexedDB stores metadata, not original bytes. Live `File` references for every 
 
 Upload naming changes only the Telegram document filename at send time; it never renames the source file. The date prefix is `YYYY-MM-DD__` and uses the date exposed through the browser picker. Duplicate-name prevention uses Unicode-normalized, case-insensitive comparisons against discovered history and local queue entries. It does not force a potentially expensive full-channel scan.
 
+Month grouping first checks the first 96 filename characters for a valid `YYYY-MM-DD`, `YYYYMMDD`, or separated `YYYY-MM` date. This covers the app's upload prefix and common camera/screenshot names without trying to parse arbitrary prose. Invalid or absent filename dates fall back to the Telegram message date.
+
 ### Bulk actions
 
 Selection mode stores only Telegram message IDs in React state. **Select all visible** means all currently loaded items that match the active filter/search; it does not claim to select undiscovered history. Supporting browsers choose one destination directory and stream selected downloads into uniquely named files. Other browsers use sequential normal downloads and may require permission for multiple downloads. Batch deletion uses Telegram chunks of at most 100 message IDs, removes cached thumbnails, and always requires one destructive confirmation.

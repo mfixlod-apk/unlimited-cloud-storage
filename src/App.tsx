@@ -99,6 +99,21 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat(undefined, {
 
 const monthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 const formatMonth = (date: Date) => new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(date);
+const dateFromFileName = (name: string) => {
+  // Covers the app's YYYY-MM-DD__ prefix plus common IMG_20240817 and
+  // Screenshot_2024-08-17 forms. Only inspect the beginning of a name and
+  // fall back cleanly instead of trying to understand every camera format.
+  const candidate = name.slice(0, 96);
+  const fullDate = candidate.match(/(?:^|[^\d])((?:19|20)\d{2})[-_.]?(0[1-9]|1[0-2])[-_.]?(0[1-9]|[12]\d|3[01])(?=[^\d]|$)/);
+  const monthOnly = fullDate ? undefined : candidate.match(/(?:^|[^\d])((?:19|20)\d{2})[-_.](0[1-9]|1[0-2])(?=[^\d]|$)/);
+  const match = fullDate || monthOnly;
+  if (!match) return undefined;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = fullDate ? Number(match[3]) : 1;
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : undefined;
+};
 
 const DIRECT_SAVE_THRESHOLD = 750 * 1024 * 1024;
 const MAX_UPLOAD_ATTEMPTS = 5;
@@ -1564,8 +1579,9 @@ function MemoryGallery({ items, channel, groupByMonth, memoryLimitMb, hasMore, p
     if (!groupByMonth) return [{ key: "all", label: "", items }];
     const grouped = new Map<string, { label: string; items: CloudItem[] }>();
     for (const item of items) {
-      const key = monthKey(item.date);
-      const current = grouped.get(key) || { label: formatMonth(item.date), items: [] };
+      const groupingDate = dateFromFileName(item.name) || item.date;
+      const key = monthKey(groupingDate);
+      const current = grouped.get(key) || { label: formatMonth(groupingDate), items: [] };
       current.items.push(item);
       grouped.set(key, current);
     }

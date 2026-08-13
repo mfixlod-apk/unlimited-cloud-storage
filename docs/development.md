@@ -180,6 +180,7 @@ There is currently no automated Telegram integration suite because it would requ
 - deleting a message and confirming it disappears in Telegram;
 - duplicate-name prevention catches a duplicate within one picker selection, a queued duplicate, and a duplicate in loaded channel history while allowing same-name uploads when disabled;
 - date-prefix uploads use `YYYY-MM-DD__filename`, preserve extensions and original source names, and do not rename existing channel items;
+- month grouping prefers valid filename dates such as `2026-08-12__photo.jpg`, `IMG_20260812.jpg`, and `archive_2026-08.zip`, while invalid or unrecognized names use the Telegram message date;
 - selection mode toggles individual cards and **Select all visible** respects the active type/search filter;
 - multi-file download streams into a chosen directory where supported, avoids overwriting same-named files in one batch, and falls back to sequential browser downloads;
 - multi-file delete requires confirmation, removes selected Telegram messages and cached thumbnails, and reloads history after a partial Telegram failure;

@@ -11,7 +11,7 @@ Developer documentation is indexed in [`docs/README.md`](docs/README.md).
 - Phone-number login fallback
 - Session restore from IndexedDB
 - Private broadcast-channel creation and selection
-- Paginated, month-groupable gallery with newest/oldest ordering, cached thumbnails, infinite scroll, and keyboard previous/next viewing
+- Paginated, month-groupable gallery that prefers recognizable filename dates and falls back to Telegram dates, with newest/oldest ordering, cached thumbnails, infinite scroll, and keyboard previous/next viewing
 - Channel switching from the desktop sidebar and mobile drive header
 - Full-history filename search and media-type filters
 - Adaptive off-screen gallery unloading with a configurable 1 GB default memory budget
