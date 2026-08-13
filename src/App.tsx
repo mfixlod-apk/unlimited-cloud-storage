@@ -8,6 +8,7 @@ import {
   CloseIcon,
   CloudIcon,
   DownloadIcon,
+  EditIcon,
   EyeIcon,
   EyeOffIcon,
   FileIcon,
@@ -58,8 +59,17 @@ interface NativeFileHandle {
   createWritable(): Promise<NativeFileWritable>;
 }
 
+interface NativeReadableFileHandle {
+  kind: "file";
+  name: string;
+  getFile(): Promise<File>;
+}
+
 interface NativeDirectoryHandle {
+  kind?: "directory";
+  name?: string;
   getFileHandle(name: string, options?: { create?: boolean }): Promise<NativeFileHandle>;
+  values?: () => AsyncIterableIterator<NativeDirectoryHandle | NativeReadableFileHandle>;
 }
 
 type SaveFilePickerWindow = Window & {
@@ -118,6 +128,7 @@ const dateFromFileName = (name: string) => {
 const DIRECT_SAVE_THRESHOLD = 750 * 1024 * 1024;
 const MAX_UPLOAD_ATTEMPTS = 5;
 const UPLOAD_STALL_TIMEOUT = 2 * 60 * 1000;
+const DIRECTORY_ENQUEUE_BATCH_SIZE = 100;
 const previewLimitMb = (effectiveMemoryMb: number) => {
   if (effectiveMemoryMb <= 256) return 128;
   if (effectiveMemoryMb <= 512) return 384;
@@ -127,17 +138,39 @@ const previewLimitMb = (effectiveMemoryMb: number) => {
 
 const userName = (user: any) => [user?.firstName, user?.lastName].filter(Boolean).join(" ") || user?.username || "Telegram user";
 
+const selectedRelativePaths = new WeakMap<File, string>();
+
 const fileFingerprint = (channelId: string, file: File) => {
-  const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || "";
+  const relativePath = selectedRelativePaths.get(file) || (file as File & { webkitRelativePath?: string }).webkitRelativePath || "";
   const fingerprint = [relativePath, file.name, file.size, file.lastModified].join("\u0000");
   return { id: `${channelId}\u0000${fingerprint}`, fingerprint, relativePath };
 };
+
+async function* readDirectoryRecursively(directory: NativeDirectoryHandle, parentPath = ""): AsyncGenerator<File> {
+  if (!directory.values) return;
+  const directoryPath = directory.name ? [parentPath, directory.name].filter(Boolean).join("/") : parentPath;
+  for await (const entry of directory.values()) {
+    if (entry.kind === "file") {
+      const file = await entry.getFile();
+      selectedRelativePaths.set(file, [directoryPath, entry.name].filter(Boolean).join("/"));
+      yield file;
+    } else {
+      yield* readDirectoryRecursively(entry, directoryPath);
+    }
+  }
+}
 
 const fileResumeKey = (file: Pick<File, "name" | "size" | "lastModified">) => [file.name, file.size, file.lastModified].join("\u0000");
 
 const uploadRecordResumeKey = (record: UploadQueueRecord) => [record.sourceName || record.name, record.size, record.lastModified].join("\u0000");
 
 const normalizedUploadName = (name: string) => name.normalize("NFKC").trim().toLocaleLowerCase();
+const isHeicItem = (item: Pick<CloudItem, "name" | "mime">) => /image\/(?:hei[cf]|heic-sequence|heif-sequence)/i.test(item.mime) || /\.hei[cf]$/i.test(item.name);
+
+const decodeHeicPreview = async (blob: Blob) => {
+  const { heicTo } = await import("heic-to/csp");
+  return heicTo({ blob, type: "image/jpeg", quality: .9 });
+};
 
 const datePrefixedName = (file: File) => {
   if (/^\d{4}-\d{2}-\d{2}__/.test(file.name)) return file.name;
@@ -164,15 +197,38 @@ const uniqueDownloadName = (name: string, used: Set<string>) => {
   return candidate;
 };
 
+const formatRemainingTime = (milliseconds: number) => {
+  const minutes = Math.max(1, Math.ceil(milliseconds / 60_000));
+  if (minutes < 60) return `about ${minutes} min left`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours < 24) return `about ${hours}h${remainingMinutes ? ` ${remainingMinutes}m` : ""} left`;
+  const days = Math.ceil(hours / 24);
+  return `about ${days} ${days === 1 ? "day" : "days"} left`;
+};
+
+const formatCountdown = (milliseconds: number) => {
+  const seconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor(seconds % 3600 / 60);
+  const remainingSeconds = seconds % 60;
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`
+    : `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+};
+
 const retryDelay = (attempt: number) => Math.min(30_000, 1_000 * 3 ** Math.max(0, attempt - 1));
 
-const telegramRetryDelay = (error: unknown, attempt: number) => {
+const telegramRateLimitSeconds = (error: unknown) => {
   const raw = error instanceof Error ? error.message : String(error);
-  const floodSeconds = Number(raw.match(/(?:FLOOD_WAIT_|wait of\s+)(\d+)/i)?.[1]);
-  return Number.isFinite(floodSeconds) && floodSeconds > 0
-    ? Math.min(15 * 60_000, (floodSeconds + 1) * 1000)
-    : retryDelay(attempt);
+  const match = raw.match(/FLOOD_(?:PREMIUM_)?WAIT_?(\d+)/i)
+    || raw.match(/please\s+wait\s+(\d+)\s+seconds?/i)
+    || raw.match(/wait(?:ing)?(?:\s+of|\s+for)?\s+(\d+)\s+seconds?/i);
+  const seconds = Number(match?.[1]);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
 };
+
+const telegramRetryDelay = (attempt: number) => retryDelay(attempt);
 
 const waitFor = (milliseconds: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
   if (signal.aborted) return reject(new DOMException("Upload paused", "AbortError"));
@@ -318,6 +374,36 @@ export default function App() {
     return created;
   };
 
+  const renameChannel = async (target: CloudChannel, title: string) => {
+    const renamed = await telegramDrive.renameChannel(target, title);
+    setChannels((current) => current.map((entry) => entry.id === renamed.id ? renamed : entry));
+    setChannel((current) => current?.id === renamed.id ? renamed : current);
+    return renamed;
+  };
+
+  const deleteChannel = async (target: CloudChannel) => {
+    await telegramDrive.deleteChannel(target);
+    try {
+      const [uploadRecords, uploadBatches] = await Promise.all([
+        localStore.getUploadRecords(target.id),
+        localStore.getUploadBatches(target.id),
+      ]);
+      await Promise.allSettled([
+        localStore.deleteUploadRecords(uploadRecords.map((record) => record.id)),
+        ...uploadBatches.map((batch) => localStore.deleteUploadBatch(batch.id)),
+      ]);
+    } catch {
+      // Telegram is authoritative; stale local queue metadata is harmless and
+      // will be removed by Forget browser/site-data cleanup.
+    }
+    setChannels((current) => current.filter((entry) => entry.id !== target.id));
+    if (channel?.id === target.id) {
+      await localStore.clearChannelId();
+      setChannel(undefined);
+      setStage("channels");
+    }
+  };
+
   const refreshChannelList = async () => {
     setChannels(await telegramDrive.listPrivateChannels());
   };
@@ -373,6 +459,8 @@ export default function App() {
           onShowPublicChannels={setShowPublicChannels}
           onSelectChannel={chooseChannel}
           onCreateChannel={createChannel}
+          onRenameChannel={renameChannel}
+          onDeleteChannel={deleteChannel}
           onChangeChannel={() => setStage("channels")}
           onForget={forgetDevice}
           onLogOut={logOut}
@@ -691,6 +779,10 @@ interface UploadSnapshot {
   currentName?: string;
   currentProgress: number;
   currentAttempt: number;
+  runStartedAt?: number;
+  runStartedProcessed: number;
+  rateLimitStartedAt?: number;
+  rateLimitUntil?: number;
   recent: UploadRecentEntry[];
 }
 interface DownloadEntry { name: string; progress: number }
@@ -706,10 +798,11 @@ const emptyUploadSnapshot = (): UploadSnapshot => ({
   paused: false,
   currentProgress: 0,
   currentAttempt: 0,
+  runStartedProcessed: 0,
   recent: [],
 });
 
-function DriveScreen({ account, channel, channels, showPublicChannels, theme, onShowPublicChannels, onSelectChannel, onCreateChannel, onChangeChannel, onForget, onLogOut, onHome, onTheme }: {
+function DriveScreen({ account, channel, channels, showPublicChannels, theme, onShowPublicChannels, onSelectChannel, onCreateChannel, onRenameChannel, onDeleteChannel, onChangeChannel, onForget, onLogOut, onHome, onTheme }: {
   account: any;
   channel: CloudChannel;
   channels: CloudChannel[];
@@ -718,6 +811,8 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
   onShowPublicChannels: (value: boolean) => void;
   onSelectChannel: (channel: CloudChannel) => Promise<void>;
   onCreateChannel: (title: string) => Promise<CloudChannel>;
+  onRenameChannel: (channel: CloudChannel, title: string) => Promise<CloudChannel>;
+  onDeleteChannel: (channel: CloudChannel) => Promise<void>;
   onChangeChannel: () => void;
   onForget: () => Promise<void>;
   onLogOut: () => Promise<void>;
@@ -855,6 +950,12 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
     if (uploadMounted.current) setUploadSnapshot({ ...stats, recent: [...stats.recent] });
   }, []);
 
+  useEffect(() => {
+    if (!uploadSnapshot.pending || uploadSnapshot.paused || !uploadSnapshot.runStartedAt) return;
+    const timer = window.setInterval(() => publishUploadSnapshot(true), 1_000);
+    return () => window.clearInterval(timer);
+  }, [publishUploadSnapshot, uploadSnapshot.paused, uploadSnapshot.pending, uploadSnapshot.runStartedAt]);
+
   const activateUploadRecord = (record: UploadQueueRecord) => {
     if (uploadVisibleIds.current.has(record.id)) return;
     uploadVisibleIds.current.add(record.id);
@@ -964,6 +1065,31 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
               break;
             }
             const message = stalled ? "Upload stopped making progress." : friendlyError(cause);
+            const rateLimitSeconds = telegramRateLimitSeconds(cause);
+            if (rateLimitSeconds) {
+              record.attempts = Math.max(0, attempt - 1);
+              const startedAt = Date.now();
+              const until = startedAt + rateLimitSeconds * 1000;
+              uploadStats.current.rateLimitStartedAt = startedAt;
+              uploadStats.current.rateLimitUntil = until;
+              await updateUploadRecord(record, "retrying", `Telegram rate limit. Waiting ${rateLimitSeconds.toLocaleString()} seconds without using a retry attempt.`);
+              const cooldownController = new AbortController();
+              uploadAbort.current = cooldownController;
+              try {
+                await waitFor(Math.max(0, until - Date.now()), cooldownController.signal);
+                uploadStats.current.rateLimitStartedAt = undefined;
+                uploadStats.current.rateLimitUntil = undefined;
+                publishUploadSnapshot(true);
+                attempt -= 1;
+                continue;
+              } catch {
+                uploadStats.current.rateLimitStartedAt = undefined;
+                uploadStats.current.rateLimitUntil = undefined;
+                await updateUploadRecord(record, "queued");
+                queueUploadId(id, true);
+                break;
+              }
+            }
             if (!navigator.onLine) {
               record.attempts = Math.max(0, attempt - 1);
               await updateUploadRecord(record, "retrying", "Waiting for an internet connection. This does not use a retry attempt.");
@@ -980,7 +1106,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
               }
             }
             if (attempt < MAX_UPLOAD_ATTEMPTS) {
-              const delay = telegramRetryDelay(cause, attempt);
+              const delay = telegramRetryDelay(attempt);
               await updateUploadRecord(record, "retrying", `${message} Retrying in ${Math.round(delay / 1000)}s.`);
               const delayController = new AbortController();
               uploadAbort.current = delayController;
@@ -1004,6 +1130,8 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
       uploadStats.current.currentName = undefined;
       uploadStats.current.currentProgress = 0;
       uploadStats.current.currentAttempt = 0;
+      uploadStats.current.rateLimitStartedAt = undefined;
+      uploadStats.current.rateLimitUntil = undefined;
       uploadStats.current.paused = uploadPaused.current;
       publishUploadSnapshot(true);
       await finalizeReadyBatches();
@@ -1060,6 +1188,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
 
   const appendFilesToUploadQueue = async (files: File[]) => {
     await uploadRestore.current;
+    const continuingActiveRun = uploadStats.current.pending > 0;
 
     // Merge persisted state first in case the picker was opened immediately
     // after the drive mounted and queue restoration was still in flight.
@@ -1175,6 +1304,10 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
     else await localStore.saveUploadRecords(changed);
     uploadStats.current.skipped += skipped;
     uploadStats.current.duplicatesSkipped += duplicatesSkipped;
+    if (changed.length && !continuingActiveRun) {
+      uploadStats.current.runStartedAt = Date.now();
+      uploadStats.current.runStartedProcessed = uploadStats.current.done + uploadStats.current.failed;
+    }
     publishUploadSnapshot(true);
     if (!uploadPaused.current) void processUploadQueue();
   };
@@ -1199,11 +1332,43 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
     return uploadEnqueue.current;
   };
 
+  const selectDirectory = async () => {
+    const picker = (window as SaveFilePickerWindow).showDirectoryPicker;
+    if (!picker) {
+      directoryInput.current?.click();
+      return;
+    }
+    setShowSyncChooser(false);
+    try {
+      const directory = await picker();
+      let files: File[] = [];
+      let found = 0;
+      for await (const file of readDirectoryRecursively(directory)) {
+        files.push(file);
+        found += 1;
+        if (files.length === DIRECTORY_ENQUEUE_BATCH_SIZE) {
+          await handleFiles(files);
+          files = [];
+        }
+      }
+      if (files.length) await handleFiles(files);
+      if (!found) setError("That folder does not contain any files.");
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === "AbortError") return;
+      setError(`Could not read that folder: ${friendlyError(cause)}`);
+    }
+  };
+
   const pauseUploads = () => {
     uploadPaused.current = true;
     uploadStats.current.paused = true;
     uploadAbort.current?.abort();
     publishUploadSnapshot(true);
+  };
+
+  const deleteStorageChannel = async (target: CloudChannel) => {
+    if (target.id === channel.id) pauseUploads();
+    await onDeleteChannel(target);
   };
 
   const resumeUploads = async () => {
@@ -1222,6 +1387,10 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
     await localStore.saveUploadRecords(reset);
     uploadPaused.current = false;
     uploadStats.current.paused = false;
+    if (uploadStats.current.pending > 0) {
+      uploadStats.current.runStartedAt = Date.now();
+      uploadStats.current.runStartedProcessed = uploadStats.current.done + uploadStats.current.failed;
+    }
     publishUploadSnapshot(true);
     void processUploadQueue();
   };
@@ -1464,20 +1633,20 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
   const previousItem = selectedIndex > 0 ? visibleItems[selectedIndex - 1] : undefined;
   const nextItem = selectedIndex >= 0 && selectedIndex < visibleItems.length - 1 ? visibleItems[selectedIndex + 1] : undefined;
   const queueHasWork = uploadSnapshot.pending > 0;
-  const directoryPickerSupported = "webkitdirectory" in document.createElement("input");
+  const directoryPickerSupported = typeof (window as SaveFilePickerWindow).showDirectoryPicker === "function" || "webkitdirectory" in document.createElement("input");
 
   return (
     <div className="app-shell" onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}>
       <aside className="sidebar">
         <Brand onClick={onHome} />
-        <ChannelSwitcher channel={channel} channels={channels} showPublic={showPublicChannels} onShowPublic={onShowPublicChannels} onSelect={onSelectChannel} onCreate={onCreateChannel} onManage={onChangeChannel} />
+        <ChannelSwitcher channel={channel} channels={channels} showPublic={showPublicChannels} onShowPublic={onShowPublicChannels} onSelect={onSelectChannel} onCreate={onCreateChannel} onRename={onRenameChannel} onDelete={deleteStorageChannel} onManage={onChangeChannel} />
         <nav>{tabs.map(({ value, label, icon: TabIcon }) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}><TabIcon />{label}<span>{value === "all" ? `${items.length}${hasMore ? "+" : ""}` : items.filter((item) => item.kind === value).length}</span></button>)}</nav>
         <div className="sidebar-foot"><button onClick={() => setSettings(true)}><SettingsIcon />Settings</button><div className="account-chip"><span>{userName(account).slice(0, 1).toUpperCase()}</span><div><strong>{userName(account)}</strong><small><i className={online ? "online" : ""} />{online ? "Connected" : "Offline"}</small></div></div></div>
       </aside>
       <main className="drive-main">
         <header className="mobile-drive-nav">
           <div className="mobile-app-bar"><button className="mobile-wordmark" onClick={onHome} aria-label="Go to home page"><CloudIcon />Unlimited Cloud Storage</button><div className="mobile-app-actions"><button className="primary-button mobile-upload" onClick={openSync} aria-label={queueHasWork ? "Add more files to the upload queue" : "Sync files now"}><UploadIcon /><span>{queueHasWork ? "Add files" : "Sync now"}</span></button><button className="mobile-settings" onClick={() => setSettings(true)} aria-label="Open settings"><SettingsIcon /></button></div></div>
-          <div className="mobile-title-row"><div className="mobile-title-copy"><h1>{tabs.find((tab) => tab.value === filter)?.label}</h1><p>{visibleItems.length}{hasMore ? "+" : ""} {visibleItems.length === 1 ? "item" : "items"}</p></div><div className="mobile-channel-control"><ChannelSwitcher channel={channel} channels={channels} showPublic={showPublicChannels} onShowPublic={onShowPublicChannels} onSelect={onSelectChannel} onCreate={onCreateChannel} onManage={onChangeChannel} /></div></div>
+          <div className="mobile-title-row"><div className="mobile-title-copy"><h1>{tabs.find((tab) => tab.value === filter)?.label}</h1><p>{visibleItems.length}{hasMore ? "+" : ""} {visibleItems.length === 1 ? "item" : "items"}</p></div><div className="mobile-channel-control"><ChannelSwitcher channel={channel} channels={channels} showPublic={showPublicChannels} onShowPublic={onShowPublicChannels} onSelect={onSelectChannel} onCreate={onCreateChannel} onRename={onRenameChannel} onDelete={deleteStorageChannel} onManage={onChangeChannel} /></div></div>
           <label className="search-box mobile-search"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label>
           <div className="mobile-tools"><button className={groupByMonth ? "active" : ""} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth}><CalendarIcon />{groupByMonth ? "Grouped" : "By month"}</button><button onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon />{sortOrder === "newest" ? "Newest" : "Oldest"}</button><button className={selectionMode ? "active" : ""} onClick={toggleSelectionMode} aria-pressed={selectionMode}><CheckIcon />{selectionMode ? "Cancel" : "Select"}</button></div>
         </header>
@@ -1496,7 +1665,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
         <div ref={sentinel} className="scroll-sentinel">{loadingMore && <><span className="spinner" />{search.trim() ? "Searching older files…" : "Loading older files…"}</>}{!hasMore && items.length > 0 && <span>You've reached the beginning.</span>}</div>
       </main>
       {dragging && <div className="drop-overlay" onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={onDrop}><div><UploadIcon /><h2>Drop to upload</h2><p>Files go directly to {channel.title}</p></div></div>}
-      {showSyncChooser && <SyncChooser supportsDirectory={directoryPickerSupported} pendingCount={uploadSnapshot.pending} totalCount={uploadSnapshot.total} onPhotos={() => mediaInput.current?.click()} onFiles={() => fileInput.current?.click()} onDirectory={() => directoryInput.current?.click()} onClose={() => setShowSyncChooser(false)} />}
+      {showSyncChooser && <SyncChooser supportsDirectory={directoryPickerSupported} pendingCount={uploadSnapshot.pending} totalCount={uploadSnapshot.total} onPhotos={() => mediaInput.current?.click()} onFiles={() => fileInput.current?.click()} onDirectory={() => void selectDirectory()} onClose={() => setShowSyncChooser(false)} />}
       {showUploadPanel && (uploadSnapshot.total > 0 || uploadSnapshot.skipped > 0 || uploadSnapshot.duplicatesSkipped > 0) && <UploadPanel snapshot={uploadSnapshot} onPause={pauseUploads} onResume={() => void resumeUploads()} onSelectMore={() => setShowSyncChooser(true)} onDiscardUnfinished={() => void dismissUnfinishedUploads()} onDismiss={() => setShowUploadPanel(false)} />}
       {selectionMode && <BulkActionBar count={checkedItems.length} allVisibleSelected={allVisibleChecked} busy={bulkBusy} onToggleAll={toggleAllVisible} onDownload={() => void downloadSelected()} onDelete={() => void deleteSelected()} onCancel={() => { setSelectionMode(false); setCheckedIds(new Set()); }} />}
       {downloadEntry && <DownloadPanel entry={downloadEntry} onCancel={() => { bulkCancelRequested.current = bulkBusy; downloadAbort.current?.abort(); }} />}
@@ -1506,13 +1675,15 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
   );
 }
 
-function ChannelSwitcher({ channel, channels, showPublic, onShowPublic, onSelect, onCreate, onManage }: {
+function ChannelSwitcher({ channel, channels, showPublic, onShowPublic, onSelect, onCreate, onRename, onDelete, onManage }: {
   channel: CloudChannel;
   channels: CloudChannel[];
   showPublic: boolean;
   onShowPublic: (value: boolean) => void;
   onSelect: (channel: CloudChannel) => Promise<void>;
   onCreate: (title: string) => Promise<CloudChannel>;
+  onRename: (channel: CloudChannel, title: string) => Promise<CloudChannel>;
+  onDelete: (channel: CloudChannel) => Promise<void>;
   onManage: () => void;
 }) {
   const availableChannels = channels.filter((entry) => showPublic || !entry.isPublic || entry.id === channel.id);
@@ -1521,6 +1692,10 @@ function ChannelSwitcher({ channel, channels, showPublic, onShowPublic, onSelect
   const [createBusy, setCreateBusy] = useState(false);
   const [createTitle, setCreateTitle] = useState("Unlimited Cloud Storage");
   const [createError, setCreateError] = useState("");
+  const [editingId, setEditingId] = useState<string>();
+  const [editTitle, setEditTitle] = useState("");
+  const [channelBusy, setChannelBusy] = useState<string>();
+  const [channelError, setChannelError] = useState("");
   useEffect(() => {
     const close = (event: MouseEvent) => {
       if (details.current && !details.current.contains(event.target as Node)) details.current.removeAttribute("open");
@@ -1548,7 +1723,35 @@ function ChannelSwitcher({ channel, channels, showPublic, onShowPublic, onSelect
       setCreateBusy(false);
     }
   };
-  return <div className="channel-switcher"><span>Storage channel</span><details className="channel-select" ref={details}><summary aria-label="Switch storage channel"><FolderIcon /><strong title={channel.title}>{channel.title}</strong><ChevronIcon /></summary><div className="channel-dropdown">{availableChannels.map((entry) => <button key={entry.id} onClick={() => select(entry)} disabled={!entry.canWrite} className={entry.id === channel.id ? "selected" : ""}><span><strong>{entry.title}</strong><small>{entry.isPublic ? "Public" : "Private"}{entry.canWrite ? "" : " · Read-only"}</small></span>{entry.id === channel.id && <CheckIcon />}</button>)}<div className="dropdown-create">{creating ? <form className="dropdown-create-form" onSubmit={create}><label>Channel name<input autoFocus maxLength={128} value={createTitle} onChange={(event) => setCreateTitle(event.target.value)} disabled={createBusy} /></label>{createError && <small role="alert">{createError}</small>}<div><button type="button" onClick={() => { setCreating(false); setCreateError(""); }} disabled={createBusy}>Cancel</button><button type="submit" disabled={createBusy}>{createBusy ? <><span className="spinner" />Creating…</> : "Create"}</button></div></form> : <button className="dropdown-create-button" onClick={() => { setCreating(true); setCreateError(""); }}><PlusIcon /><span><strong>Create new channel</strong><small>Private storage channel</small></span></button>}</div><label className="dropdown-public-toggle"><span><strong>Show public</strong><small>May be visible to subscribers</small></span><input type="checkbox" checked={showPublic} onChange={(event) => onShowPublic(event.target.checked)} /></label></div></details><button className="channel-manage" onClick={onManage}>Manage channels</button></div>;
+  const saveRename = async (event: FormEvent, target: CloudChannel) => {
+    event.preventDefault();
+    const title = editTitle.trim();
+    if (!title) return setChannelError("Enter a channel name.");
+    if (title.length > 128) return setChannelError("Keep the name under 128 characters.");
+    if (title === target.title) { setEditingId(undefined); return; }
+    setChannelBusy(target.id);
+    setChannelError("");
+    try {
+      await onRename(target, title);
+      setEditingId(undefined);
+    } catch (cause) {
+      setChannelError(friendlyError(cause));
+    } finally {
+      setChannelBusy(undefined);
+    }
+  };
+  const remove = async (target: CloudChannel) => {
+    if (!window.confirm(`Permanently delete “${target.title}” and every file in it from Telegram? This cannot be undone.`)) return;
+    setChannelBusy(target.id);
+    setChannelError("");
+    try {
+      await onDelete(target);
+    } catch (cause) {
+      setChannelError(friendlyError(cause));
+      setChannelBusy(undefined);
+    }
+  };
+  return <div className="channel-switcher"><span>Storage channel</span><details className="channel-select" ref={details}><summary aria-label="Switch storage channel"><FolderIcon /><strong title={channel.title}>{channel.title}</strong><ChevronIcon /></summary><div className="channel-dropdown">{availableChannels.map((entry) => editingId === entry.id ? <form key={entry.id} className="dropdown-channel-edit" onSubmit={(event) => void saveRename(event, entry)}><input autoFocus maxLength={128} value={editTitle} onChange={(event) => setEditTitle(event.target.value)} disabled={channelBusy === entry.id} aria-label={`New name for ${entry.title}`} /><button type="button" onClick={() => { setEditingId(undefined); setChannelError(""); }} disabled={channelBusy === entry.id}>Cancel</button><button type="submit" disabled={channelBusy === entry.id}>Save</button></form> : <div className={`dropdown-channel-row ${entry.id === channel.id ? "selected" : ""}`} key={entry.id}><button className="dropdown-channel-choice" onClick={() => select(entry)} disabled={!entry.canWrite || Boolean(channelBusy)}><span><strong>{entry.title}</strong><small>{entry.isPublic ? "Public" : "Private"}{entry.canWrite ? "" : " · Read-only"}</small></span>{entry.id === channel.id && <CheckIcon />}</button>{(entry.canRename || entry.canDelete) && <div className="dropdown-channel-actions">{entry.canRename && <button onClick={() => { setEditingId(entry.id); setEditTitle(entry.title); setChannelError(""); }} disabled={Boolean(channelBusy)} aria-label={`Rename ${entry.title}`} title="Rename channel"><EditIcon /></button>}{entry.canDelete && <button className="danger" onClick={() => void remove(entry)} disabled={Boolean(channelBusy)} aria-label={`Delete ${entry.title}`} title="Delete channel">{channelBusy === entry.id ? <span className="spinner" /> : <TrashIcon />}</button>}</div>}</div>)}{channelError && <small className="dropdown-channel-error" role="alert">{channelError}</small>}<div className="dropdown-create">{creating ? <form className="dropdown-create-form" onSubmit={create}><label>Channel name<input autoFocus maxLength={128} value={createTitle} onChange={(event) => setCreateTitle(event.target.value)} disabled={createBusy} /></label>{createError && <small role="alert">{createError}</small>}<div><button type="button" onClick={() => { setCreating(false); setCreateError(""); }} disabled={createBusy}>Cancel</button><button type="submit" disabled={createBusy}>{createBusy ? <><span className="spinner" />Creating…</> : "Create"}</button></div></form> : <button className="dropdown-create-button" onClick={() => { setCreating(true); setCreateError(""); }}><PlusIcon /><span><strong>Create new channel</strong><small>Private storage channel</small></span></button>}</div><label className="dropdown-public-toggle"><span><strong>Show public</strong><small>May be visible to subscribers</small></span><input type="checkbox" checked={showPublic} onChange={(event) => onShowPublic(event.target.checked)} /></label></div></details><button className="channel-manage" onClick={onManage}>Manage channels</button></div>;
 }
 
 function MemoryGallery({ items, channel, groupByMonth, memoryLimitMb, hasMore, paused, selectionMode, selectedIds, onOpen, onToggleSelection, onDownload, onDelete }: {
@@ -1703,7 +1906,14 @@ function UploadPanel({ snapshot, onPause, onResume, onSelectMore, onDiscardUnfin
   const onlyUnfinished = snapshot.needsFile > 0 && snapshot.pending === 0;
   const title = snapshot.paused ? "Sync paused" : onlyUnfinished ? "Unfinished sync" : snapshot.pending > 0 ? "Syncing files" : snapshot.failed > 0 ? "Sync needs attention" : "Sync complete";
   const processed = snapshot.done + snapshot.failed;
-  return <aside className="upload-panel" aria-live="polite"><div className="panel-title"><div><strong>{title}</strong><small>{snapshot.total.toLocaleString()} queued · {snapshot.done.toLocaleString()} uploaded{snapshot.skipped ? ` · ${snapshot.skipped.toLocaleString()} already synced` : ""}{snapshot.duplicatesSkipped ? ` · ${snapshot.duplicatesSkipped.toLocaleString()} duplicate names skipped` : ""}</small></div><button onClick={onlyUnfinished ? onDiscardUnfinished : onDismiss} aria-label={onlyUnfinished ? "Dismiss unfinished sync" : "Hide sync status"}><CloseIcon /></button></div><div className="upload-summary"><div><span>{snapshot.currentName || (snapshot.needsFile ? `${snapshot.needsFile.toLocaleString()} inaccessible local ${snapshot.needsFile === 1 ? "file" : "files"}` : "Queue ready")}</span><strong>{snapshot.currentName ? `${Math.round(snapshot.currentProgress * 100)}%` : `${processed.toLocaleString()}/${snapshot.total.toLocaleString()}`}</strong></div>{snapshot.currentName && <progress className="progress current-upload-progress" max={1} value={snapshot.currentProgress} />}<progress className="progress" max={Math.max(1, snapshot.total)} value={Math.min(snapshot.total, processed)} />{snapshot.currentName && <small>Current file · attempt {snapshot.currentAttempt} of {MAX_UPLOAD_ATTEMPTS}</small>}<small>Overall queue · {processed.toLocaleString()} of {snapshot.total.toLocaleString()} processed</small></div><div className="upload-counts"><span><strong>{snapshot.pending.toLocaleString()}</strong> waiting</span><span><strong>{snapshot.done.toLocaleString()}</strong> done</span><span><strong>{snapshot.failed.toLocaleString()}</strong> failed</span></div>{snapshot.recent.map((entry) => <div className="upload-row" key={entry.id}><FileIcon /><div><span><strong title={entry.name}>{entry.name}</strong><small>{entry.status === "retrying" ? "retrying" : entry.status}</small></span>{entry.error && <em>{entry.error}</em>}</div></div>)}<div className="upload-actions"><button className="primary-button" onClick={onSelectMore}><PlusIcon />Add files</button>{snapshot.pending > 0 && !snapshot.paused && <button className="secondary-button" onClick={onPause}>Pause</button>}{(snapshot.paused || snapshot.failed > 0) && <button className="secondary-button" onClick={onResume}>{snapshot.failed > 0 ? "Retry failed" : "Resume"}</button>}{snapshot.needsFile > 0 && <button className="secondary-button" onClick={onDiscardUnfinished}>Dismiss unfinished</button>}</div><p className="upload-foreground-note">{onlyUnfinished ? "Dismiss removes only the unfinished local queue entries. It never deletes files from Telegram." : `Add more picker batches at any time. Uploads retry up to ${MAX_UPLOAD_ATTEMPTS} times and continue with the next file after a permanent failure. Keep the app in the foreground.`}</p></aside>;
+  const runProcessed = Math.max(0, processed - snapshot.runStartedProcessed);
+  const estimatedRemaining = !snapshot.paused && snapshot.pending > 0 && snapshot.runStartedAt && runProcessed > 0
+    ? (Date.now() - snapshot.runStartedAt) / runProcessed * snapshot.pending
+    : undefined;
+  const rateLimitRemaining = snapshot.rateLimitUntil ? Math.max(0, snapshot.rateLimitUntil - Date.now()) : 0;
+  const rateLimitDuration = snapshot.rateLimitStartedAt && snapshot.rateLimitUntil ? snapshot.rateLimitUntil - snapshot.rateLimitStartedAt : 0;
+  const rateLimitProgress = rateLimitDuration ? Math.min(1, Math.max(0, 1 - rateLimitRemaining / rateLimitDuration)) : 0;
+  return <aside className="upload-panel" aria-live="polite"><div className="panel-title"><div><strong>{rateLimitRemaining ? "Waiting for Telegram" : title}</strong><small>{snapshot.total.toLocaleString()} queued · {snapshot.done.toLocaleString()} uploaded{snapshot.skipped ? ` · ${snapshot.skipped.toLocaleString()} already synced` : ""}{snapshot.duplicatesSkipped ? ` · ${snapshot.duplicatesSkipped.toLocaleString()} duplicate names skipped` : ""}</small></div><button onClick={onlyUnfinished ? onDiscardUnfinished : onDismiss} aria-label={onlyUnfinished ? "Dismiss unfinished sync" : "Hide sync status"}><CloseIcon /></button></div><div className="upload-summary"><div><span>{snapshot.currentName || (snapshot.needsFile ? `${snapshot.needsFile.toLocaleString()} inaccessible local ${snapshot.needsFile === 1 ? "file" : "files"}` : "Queue ready")}</span><strong>{snapshot.currentName ? `${Math.round(snapshot.currentProgress * 100)}%` : `${processed.toLocaleString()}/${snapshot.total.toLocaleString()}`}</strong></div>{snapshot.currentName && <progress className="progress current-upload-progress" max={1} value={snapshot.currentProgress} />}<progress className="progress" max={Math.max(1, snapshot.total)} value={Math.min(snapshot.total, processed)} />{snapshot.currentName && <small>Current file · attempt {snapshot.currentAttempt} of {MAX_UPLOAD_ATTEMPTS}</small>}<small>Overall queue · {processed.toLocaleString()} of {snapshot.total.toLocaleString()} processed{estimatedRemaining ? ` · ${formatRemainingTime(estimatedRemaining)}` : snapshot.pending > 0 && !snapshot.paused ? " · estimating after the first file" : ""}</small></div>{rateLimitRemaining > 0 && <div className="rate-limit-wait"><div><span><i />Telegram asked this app to slow down</span><strong>{formatCountdown(rateLimitRemaining)}</strong></div><progress max={1} value={rateLimitProgress} /><small>The current file will resume automatically. This wait does not use a retry attempt.</small></div>}<div className="upload-counts"><span><strong>{snapshot.pending.toLocaleString()}</strong> waiting</span><span><strong>{snapshot.done.toLocaleString()}</strong> done</span><span><strong>{snapshot.failed.toLocaleString()}</strong> failed</span></div>{snapshot.recent.map((entry) => <div className="upload-row" key={entry.id}><FileIcon /><div><span><strong title={entry.name}>{entry.name}</strong><small>{entry.status === "retrying" ? "retrying" : entry.status}</small></span>{entry.error && <em>{entry.error}</em>}</div></div>)}<div className="upload-actions"><button className="primary-button" onClick={onSelectMore}><PlusIcon />Add files</button>{snapshot.pending > 0 && !snapshot.paused && <button className="secondary-button" onClick={onPause}>Pause</button>}{(snapshot.paused || snapshot.failed > 0) && <button className="secondary-button" onClick={onResume}>{snapshot.failed > 0 ? "Retry failed" : "Resume"}</button>}{snapshot.needsFile > 0 && <button className="secondary-button" onClick={onDiscardUnfinished}>Dismiss unfinished</button>}</div><p className="upload-foreground-note">{onlyUnfinished ? "Dismiss removes only the unfinished local queue entries. It never deletes files from Telegram." : `Add more picker batches at any time. Uploads retry up to ${MAX_UPLOAD_ATTEMPTS} times and continue with the next file after a permanent failure. Keep the app in the foreground.`}</p></aside>;
 }
 
 function BulkActionBar({ count, allVisibleSelected, busy, onToggleAll, onDownload, onDelete, onCancel }: {
@@ -1730,6 +1940,10 @@ function Viewer({ channel, item, previewLimitBytes, onClose, onPrevious, onNext,
   const [posterUrl, setPosterUrl] = useState("");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
+  const [heicDecoding, setHeicDecoding] = useState(false);
+  const [heicFallbackTried, setHeicFallbackTried] = useState(false);
+  const imageBlob = useRef<Blob | undefined>(undefined);
+  const heicPreviewUrl = useRef("");
   const streamEverOpened = useRef(false);
   const progressiveCandidate = item.kind === "video" || item.kind === "audio";
   useEffect(() => {
@@ -1770,10 +1984,11 @@ function Viewer({ channel, item, previewLimitBytes, onClose, onPrevious, onNext,
     const controller = new AbortController();
     let objectUrl = "";
     telegramDrive.download(channel, item, setProgress, controller.signal).then((blob) => {
-      if (blob && !controller.signal.aborted) { objectUrl = URL.createObjectURL(blob); setUrl(objectUrl); }
+      if (blob && !controller.signal.aborted) { imageBlob.current = item.kind === "image" ? blob : undefined; objectUrl = URL.createObjectURL(blob); setUrl(objectUrl); }
     }).catch((cause) => { if (!controller.signal.aborted) setError(friendlyError(cause)); });
-    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
+    return () => { controller.abort(); imageBlob.current = undefined; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [channel, item, previewLimitBytes, progressiveCandidate, progressiveFailed]);
+  useEffect(() => () => { if (heicPreviewUrl.current) URL.revokeObjectURL(heicPreviewUrl.current); }, []);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -1784,6 +1999,20 @@ function Viewer({ channel, item, previewLimitBytes, onClose, onPrevious, onNext,
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose, onNext, onPrevious]);
   const previewFailed = () => {
+    if (item.kind === "image" && isHeicItem(item) && imageBlob.current && !heicFallbackTried) {
+      const originalUrl = url;
+      setHeicFallbackTried(true);
+      setHeicDecoding(true);
+      setUrl("");
+      void decodeHeicPreview(imageBlob.current).then((jpeg) => {
+        if (originalUrl) URL.revokeObjectURL(originalUrl);
+        heicPreviewUrl.current = URL.createObjectURL(jpeg);
+        setUrl(heicPreviewUrl.current);
+      }).catch((cause) => {
+        setError(`This HEIC image could not be decoded locally: ${friendlyError(cause)}`);
+      }).finally(() => setHeicDecoding(false));
+      return;
+    }
     if (streamUrl && !progressiveFailed) {
       setStreamUrl("");
       setStreamPlaybackFailed(true);
@@ -1798,7 +2027,7 @@ function Viewer({ channel, item, previewLimitBytes, onClose, onPrevious, onNext,
     setStreamPlaybackFailed(false);
   };
   const mediaUrl = streamUrl || url;
-  return <div className="modal-backdrop viewer-backdrop" role="dialog" aria-modal="true" aria-label={item.name} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="viewer"><header><div><strong>{item.name}</strong><small>{formatSize(item.size)} · {formatDate(item.date)}</small></div><div><button onClick={onDownload} title="Download"><DownloadIcon /></button><button className="danger" onClick={onDelete} title="Delete"><TrashIcon /></button><button onClick={onClose} title="Close"><CloseIcon /></button></div></header><div className="viewer-content"><button className="viewer-nav previous" onClick={onPrevious} disabled={!onPrevious} aria-label="Previous file"><ChevronIcon /></button>{error ? <div className="viewer-message"><FileIcon /><p>{error}</p><div className="viewer-message-actions">{streamPlaybackFailed && <button className="secondary-button" onClick={retryStream}><RefreshIcon />Retry stream</button>}<button className="primary-button" onClick={onDownload}><DownloadIcon />Download original</button></div></div> : mediaUrl && (item.kind === "video" || item.kind === "audio") ? <ProgressivePlayer kind={item.kind} src={mediaUrl} poster={posterUrl} streaming={Boolean(streamUrl)} onError={previewFailed} /> : mediaUrl && item.kind === "image" ? <img src={mediaUrl} alt={item.name} onError={previewFailed} /> : <div className="viewer-message">{(!progressiveCandidate || progressiveFailed) && item.size > previewLimitBytes ? <><VideoIcon /><p>This file exceeds the current preview memory limit. Download it to view, or raise the limit in Settings.</p><button className="primary-button" onClick={onDownload}><DownloadIcon />Download</button></> : item.kind === "file" ? <><FileIcon /><p>Preview is not available for this file type.</p><button className="primary-button" onClick={onDownload}><DownloadIcon />Download</button></> : posterUrl ? <div className="viewer-loading-preview"><img src={posterUrl} alt="" onError={() => setPosterUrl("")} /><span><i className="spinner" />{progressiveCandidate && !progressiveFailed ? "Preparing stream…" : <>Loading original… {progress ? `${Math.round(progress * 100)}%` : ""}</>}</span></div> : <><span className="spinner large" /><p>{progressiveCandidate && !progressiveFailed ? "Preparing progressive playback…" : <>Loading preview… {progress ? `${Math.round(progress * 100)}%` : ""}</>}</p></>}</div>}<button className="viewer-nav next" onClick={onNext} disabled={!onNext} aria-label="Next file"><ChevronIcon /></button></div></div></div>;
+  return <div className="modal-backdrop viewer-backdrop" role="dialog" aria-modal="true" aria-label={item.name} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="viewer"><header><div><strong>{item.name}</strong><small>{formatSize(item.size)} · {formatDate(item.date)}</small></div><div><button onClick={onDownload} title="Download"><DownloadIcon /></button><button className="danger" onClick={onDelete} title="Delete"><TrashIcon /></button><button onClick={onClose} title="Close"><CloseIcon /></button></div></header><div className="viewer-content"><button className="viewer-nav previous" onClick={onPrevious} disabled={!onPrevious} aria-label="Previous file"><ChevronIcon /></button>{error ? <div className="viewer-message"><FileIcon /><p>{error}</p><div className="viewer-message-actions">{streamPlaybackFailed && <button className="secondary-button" onClick={retryStream}><RefreshIcon />Retry stream</button>}<button className="primary-button" onClick={onDownload}><DownloadIcon />Download original</button></div></div> : mediaUrl && (item.kind === "video" || item.kind === "audio") ? <ProgressivePlayer kind={item.kind} src={mediaUrl} poster={posterUrl} streaming={Boolean(streamUrl)} onError={previewFailed} /> : mediaUrl && item.kind === "image" ? <div className="viewer-image-frame"><img src={mediaUrl} alt={item.name} onError={previewFailed} /></div> : <div className="viewer-message">{(!progressiveCandidate || progressiveFailed) && item.size > previewLimitBytes ? <><VideoIcon /><p>This file exceeds the current preview memory limit. Download it to view, or raise the limit in Settings.</p><button className="primary-button" onClick={onDownload}><DownloadIcon />Download</button></> : item.kind === "file" ? <><FileIcon /><p>Preview is not available for this file type.</p><button className="primary-button" onClick={onDownload}><DownloadIcon />Download</button></> : posterUrl ? <div className="viewer-loading-preview"><img src={posterUrl} alt="" onError={() => setPosterUrl("")} /><span><i className="spinner" />{progressiveCandidate && !progressiveFailed ? "Preparing stream…" : heicDecoding ? "Decoding HEIC on this device…" : <>Loading original… {progress ? `${Math.round(progress * 100)}%` : ""}</>}</span></div> : <><span className="spinner large" /><p>{progressiveCandidate && !progressiveFailed ? "Preparing progressive playback…" : heicDecoding ? "Decoding HEIC on this device…" : <>Loading preview… {progress ? `${Math.round(progress * 100)}%` : ""}</>}</p></>}</div>}<button className="viewer-nav next" onClick={onNext} disabled={!onNext} aria-label="Next file"><ChevronIcon /></button></div></div></div>;
 }
 
 function ProgressivePlayer({ kind, src, poster, streaming, onError }: { kind: "video" | "audio"; src: string; poster: string; streaming: boolean; onError: () => void }) {

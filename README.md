@@ -10,13 +10,13 @@ Developer documentation is indexed in [`docs/README.md`](docs/README.md).
 - Real Telegram QR login, including two-step verification
 - Phone-number login fallback
 - Session restore from IndexedDB
-- Private broadcast-channel creation and selection
+- Private broadcast-channel creation, selection, rename, and owner-confirmed deletion
 - Paginated, month-groupable gallery that prefers recognizable filename dates and falls back to Telegram dates, with newest/oldest ordering, cached thumbnails, infinite scroll, and keyboard previous/next viewing
 - Channel switching from the desktop sidebar and mobile drive header
 - Full-history filename search and media-type filters
 - Adaptive off-screen gallery unloading with a configurable 1 GB default memory budget
-- Foreground **Sync now** for very large picker/directory selections, with repeatable picker batches that append while uploading, a durable metadata queue, sequential bounded-memory uploads, pause/resume, stall detection, five-attempt retry, optional duplicate-name skipping, and date-prefixed upload names
-- Exact-byte image/document storage, broad video/audio uploads, progressive video/audio playback with seeking and a buffer bar, single/bulk downloads, and confirmed permanent deletion
+- Foreground **Sync now** for very large picker/directory selections, including recursive subfolders, repeatable picker batches that append while uploading, a durable metadata queue, bounded three-part Telegram uploads, a simple file-ratio ETA, pause/resume, stall detection, five-attempt retry, optional duplicate-name skipping, and date-prefixed upload names
+- Exact-byte image/document storage, broad video/audio uploads, local HEIC/HEIF-to-JPEG preview fallback, progressive video/audio playback with seeking and a buffer bar, single/bulk downloads, and confirmed permanent deletion
 - Gallery selection mode with select-all-visible, multi-file download, and confirmed batch deletion
 - Responsive desktop/mobile UI with a safe-area-aware phone navigation bar and installable PWA shell
 - Persisted light/dark appearance with a three-part, responsive product and security overview
@@ -86,8 +86,10 @@ The maintained [`teleproto`](https://docs.teleproto.dev/) MTProto client is used
 ## Known constraints
 
 - Video and audio first use same-origin progressive byte-range playback: the browser pulls 1 MB or less at a time, cancels abandoned Telegram requests when seeking, and manages eviction of previously buffered ranges. A playback interruption offers an explicit stream retry instead of silently loading the full file. Images and the initial compatibility fallback still use an in-memory Blob bounded by the configured memory tier: 128 MB at 256 MB, 384 MB at 512 MB, 768 MB at 1 GB, and up to 1.5 GB at 2 GB. Downloads stream directly to a chosen file in browsers with the File System Access API; other browsers use a Blob fallback and warn before very large downloads.
-- Every file type can be uploaded and downloaded as a Telegram document. Inline image/video/audio preview depends on the browser supporting that file's container and codec; unsupported media remains downloadable.
+- Every file type can be uploaded and downloaded as a Telegram document. HEIC/HEIF images that Chrome cannot display natively are decoded to a temporary JPEG on this device; the stored original is unchanged. Other inline image/video/audio preview depends on browser container and codec support, and unsupported media remains downloadable.
 - Desktop, iOS/Android browser, and installed-PWA uploads use the original picker Blob and read bounded Telegram parts rather than copying the whole file into one JavaScript buffer.
+- Telegram has an album API, not a general bulk-file transfer endpoint: album members must still be uploaded separately. The app therefore retains per-file retry/accounting and keeps one file active, while allowing up to three bounded parts of that file in flight as recommended by Telegram's file API.
+- Folder selection is recursive. Supporting desktop browsers are walked explicitly and enqueued in 100-file metadata batches; `webkitdirectory` browsers, including supported mobile versions, provide all descendant files with their relative paths.
 - The upload button remains an **Add files** action while syncing. Repeated mobile-picker batches are serialized into the same FIFO queue, so selecting roughly 100 items at a time can build a queue of 1,000 or more without starting parallel Telegram upload workers. The practical ceiling still depends on browser/OS memory for live `File` references.
 - The optional `YYYY-MM-DD__` upload prefix uses the date exposed by the device file picker (normally the file modification/capture date). It does not rewrite existing Telegram items or expose location metadata.
 - Duplicate-name prevention compares normalized names already discovered in the selected channel and its local queue. It deliberately does not force a full-history scan before every upload, so an older unloaded duplicate can still exist.

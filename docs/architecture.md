@@ -149,13 +149,14 @@ Off-screen chunks unmount their card and thumbnail components, revoke Blob URLs,
 
 ```text
 File picker, directory picker, or drop
+  → recursively walk nested directory handles (or accept webkitdirectory descendants)
   → copy the picker result immediately and serialize queue bookkeeping
   → optionally prefix the outgoing name with the picker-provided media date
   → optionally skip a normalized name already discovered in this channel/queue
   → fingerprint and persist lightweight queue entries
   → retain picker File references for this page lifetime only
   → upload one file at a time with bounded retries
-  → uploadFile reads bounded Blob slices and returns Telegram InputFile
+  → uploadFile keeps up to three bounded Blob parts in flight and returns Telegram InputFile
   → sendFile posts that unambiguous handle to the selected channel
   → release the completed File reference
   → commit a small Telegram batch-checkpoint text message
@@ -165,6 +166,12 @@ File picker, directory picker, or drop
 The queue UI keeps aggregate counters and at most six recent rows rather than rendering every selected item. This keeps 10,000-file selections from creating a 10,000-node progress panel. While the worker is active, both the main upload control and the transfer panel can reopen the picker; each returned batch is serialized through a short enqueue chain and appended FIFO without interrupting the current file or creating a second worker. Copying the returned `FileList` immediately is important on mobile because the browser may clear that live list when its input resets or another picker opens.
 
 IndexedDB stores metadata, not original bytes. Live `File` references for every waiting item remain page-local until their upload finishes, so a thousand-item queue avoids a thousand-file byte buffer but is still subject to the browser's file-handle and memory limits. After reload, unfinished records become `needs-file`; the notice can be dismissed, which removes only those inaccessible local records and their incomplete batch metadata. New batches can be selected without automatically deleting that stale state.
+
+Telegram's [`messages.sendMultiMedia`](https://core.telegram.org/method/messages.sendMultiMedia) is deliberately not used as a queue accelerator. It creates a grouped album and requires every member to be separately uploaded with `messages.uploadMedia` first, so it neither provides a general bulk-transfer operation nor preserves the drive's independent per-file send/retry boundary. Telegram's [file API](https://core.telegram.org/api/files) does recommend parallel part calls; Teleproto's upload worker window is therefore capped at three parts while the outer queue keeps one file active.
+
+A single Teleproto client already owns a media scheduler with several dedicated transfer sessions; the application must not create a full authenticated client per queued file. That would duplicate update handling, connection recovery, and flood-wait state without creating a Telegram bulk-upload primitive. Parallelism stays inside the active file's bounded media-part scheduler.
+
+The transfer panel's ETA is intentionally approximate and file-count based: elapsed active-run time divided by files processed since the run baseline, multiplied by files still pending. It appears after the first file finishes, updates once per second, expands when more files are appended, and resets after pause/resume or when a new completed queue is extended. Different file sizes and retries can make it move substantially.
 
 Upload naming changes only the Telegram document filename at send time; it never renames the source file. The date prefix is `YYYY-MM-DD__` and uses the date exposed through the browser picker. Duplicate-name prevention uses Unicode-normalized, case-insensitive comparisons against discovered history and local queue entries. It does not force a potentially expensive full-channel scan.
 
@@ -187,11 +194,13 @@ Telegram message ID
   │     → service worker MessageChannel → iterDownload ≤ 1 MB → 206 response
   │     → abandoned request aborts its Telegram range during seeking
   │     → browser-managed playback buffer; explicit retry on runtime failure
-  ├── image preview → collect Blob → object URL → viewer → revoke URL
+  ├── image preview → collect Blob → object URL → viewport-bounded contain frame → revoke URL
   ├── normal download → collect Blob → temporary anchor
   ├── large supported-browser download → ordered chunks → chosen file
   └── large fallback download → confirm → collect Blob → temporary anchor
 ```
+
+The image viewer does not size originals directly against the padded CSS grid. It places them in an explicit inset frame and caps their intrinsic height against the actual desktop or dynamic mobile viewport. Width and height remain automatic, so portrait and landscape images preserve aspect ratio and shrink until every edge fits.
 
 ## Build architecture
 

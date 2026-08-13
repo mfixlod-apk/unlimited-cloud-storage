@@ -17,7 +17,7 @@ The MVP includes:
 - runtime-supplied Telegram API credentials;
 - QR authentication, phone login fallback, and Telegram two-step verification;
 - serialized Telegram session restoration;
-- creation and selection of a private broadcast channel;
+- creation, selection, rename, and confirmed owner deletion of broadcast channels;
 - paginated history, local filtering/search, and thumbnail caching;
 - durable sequential uploads with retry, date-prefix and duplicate-name options;
 - viewing plus single/bulk downloading and confirmed single/bulk deletion of media messages;

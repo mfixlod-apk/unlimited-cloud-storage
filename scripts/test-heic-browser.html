@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>HEIC browser smoke test</title>
+<output id="result">RUNNING</output>
+<script>window.__heicWait = setInterval(() => {}, 100);</script>
+<script type="module">
+  import { heicTo } from "../node_modules/heic-to/dist/csp/heic-to.js";
+
+  const result = document.querySelector("#result");
+  try {
+    const fixture = new URL(location.href).searchParams.get("fixture");
+    if (!fixture) throw new Error("Pass ?fixture=file:///absolute/path/to/image.heic");
+    const source = await fetch(fixture).then((response) => response.blob());
+    const jpeg = await heicTo({ blob: source, type: "image/jpeg", quality: .9 });
+    const bitmap = await createImageBitmap(jpeg);
+    result.textContent = `PASS ${jpeg.type} ${bitmap.width}x${bitmap.height}`;
+    bitmap.close();
+  } catch (error) {
+    result.textContent = `FAIL ${error instanceof Error ? error.message : String(error)}`;
+  } finally {
+    clearInterval(window.__heicWait);
+  }
+</script>

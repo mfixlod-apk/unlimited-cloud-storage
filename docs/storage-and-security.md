@@ -79,7 +79,7 @@ If logout cannot reach Telegram, the current code still disconnects and clears l
 
 ## Service-worker cache
 
-[`public/service-worker.js`](../public/service-worker.js) currently maintains cache `unlimited-cloud-storage-shell-v7`.
+[`public/service-worker.js`](../public/service-worker.js) currently maintains cache `unlimited-cloud-storage-shell-v8`.
 
 It caches only same-origin GET responses:
 
@@ -120,6 +120,8 @@ During `npm run dev`, the `development-csp` transform in `vite.config.ts` adds `
 ## Dependency and cryptography notes
 
 Teleproto expects Node-compatible crypto and binary APIs. Vite's Node polyfill plugin supplies them for the browser. Production builds may report a warning about `vm-browserify` containing an `eval` fallback. The CSP does not allow `unsafe-eval`; the relevant dependency catches that failure and uses its non-eval fallback. Re-test the complete login handshake whenever Teleproto or the polyfill stack changes.
+
+HEIC/HEIF preview fallback uses `heic-to` 1.5.2 (LGPL-3.0-or-later), which bundles libheif 1.22.2. It is dynamically loaded only after native image decoding fails, uses the package's no-`unsafe-eval` CSP build, and processes the downloaded Blob locally. It does not add a network origin or weaken `script-src`. Treat every media decoder as an untrusted-file parser: keep it current, retain the preview-size ceiling, and do not persist converted JPEGs. Source and license: <https://github.com/hoppergee/heic-to>.
 
 `vite.config.ts` also applies narrowly checked browser corrections to known Teleproto 1.228 Node assumptions. They run during development dependency optimization and production builds, and fail the build if an upgrade changes the expected source. This avoids editing `node_modules` or installing global prototype shims.
 

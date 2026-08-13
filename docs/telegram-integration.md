@@ -83,13 +83,15 @@ Only the channel ID is persisted. The current `inputEntity` is retained in memor
 
 The channel screen and the drive's channel dropdown can call `createPrivateChannel()`. The dropdown exposes an inline name form, so creating storage never requires leaving the drive. Creation uses Teleproto's native `createChannel()` method without `megagroup`, producing a private broadcast channel with the user-supplied title. The returned channel is converted to a `CloudChannel`, selected immediately, and persisted. Channel-limit and empty-title errors receive user-friendly messages.
 
+The dropdown also exposes Telegram's `channels.editTitle` action to owners and admins with `changeInfo`, plus `channels.deleteChannel` to the channel owner. Whole-channel deletion permanently removes every stored message/file and therefore requires a specific confirmation. If the active channel is deleted, its saved ID is cleared and the app returns to channel selection. Telegram can reject deletion for permission or channel-size reasons; those errors remain visible and the channel stays selected.
+
 ## Message mapping
 
 `toCloudItem()` ignores messages without a photo or document. Classification order is:
 
-1. Telegram photo or an `image/*` MIME type → `image`;
-2. Telegram video or a `video/*` MIME type → `video`;
-3. Telegram audio or an `audio/*` MIME type → `audio`;
+1. Telegram photo, an `image/*` MIME type, or a recognized image filename extension → `image`;
+2. Telegram video, a `video/*` MIME type, or a recognized video filename extension → `video`;
+3. Telegram audio, an `audio/*` MIME type, or a recognized audio filename extension → `audio`;
 4. everything else with a document → `file`.
 
 When Telegram does not provide a filename, the UI creates one from the kind and message ID. File sizes and dates may arrive as JavaScript numbers or Teleproto big-integer values, so `asNumber()` normalizes them.
@@ -126,10 +128,14 @@ Files use a deterministic two-step Teleproto path: `client.uploadFile()` returns
 - browser MIME and explicit filename/video/audio attributes are retained;
 - only MP4/M4V is marked as streamable, avoiding Telegram content-type errors for containers such as MKV or AVI;
 - images are sent as documents so Telegram retains their original bytes and filename instead of recompressing them as chat photos;
-- `workers: 1` keeps each file's upload conservative;
+- `workers: 3` keeps a conservative bounded set of file parts in flight, following Telegram's documented parallel-part upload model;
 - the UI processes multiple selected files sequentially.
 
-Foreground sync has no application-level selection-count cap. It persists only lightweight queue records, retains current-page `File` references, and feeds the same upload method sequentially. A two-minute no-progress watchdog aborts a stalled request. Transient failures retry up to five times with exponential backoff; detected Telegram flood waits are honored for a bounded foreground interval, and offline time does not consume retry attempts. A failed item does not block later queue entries.
+Telegram's [`messages.sendMultiMedia`](https://core.telegram.org/method/messages.sendMultiMedia) is an album operation, not a bulk upload primitive. Telegram requires each album member to be uploaded separately before the grouped send, and using it here would couple otherwise independent drive records. The queue instead preserves per-file completion and retry state while parallelizing only three bounded parts within the active file, following Telegram's [official file-upload guidance](https://core.telegram.org/api/files).
+
+Do not instantiate a `TelegramClient` per upload. The one authenticated client already delegates media traffic to Teleproto's multi-session `MediaScheduler`, while retaining one main authorization/update boundary. Extra top-level clients would multiply reconnect and flood-control behavior and make cancellation and account cleanup less reliable.
+
+Foreground sync has no application-level selection-count cap. It persists only lightweight queue records, retains current-page `File` references, and feeds the same upload method sequentially. A two-minute no-progress watchdog aborts a stalled request. Transient failures retry up to five times with exponential backoff. `FLOOD_WAIT`, `FLOOD_PREMIUM_WAIT`, and human-readable `Please wait N seconds` errors pause the current file for Telegram's full requested interval, show a second-by-second cooldown bar, and then retry the same attempt; the cooldown does not consume one of the five attempts. Offline time likewise does not consume an attempt. Pausing during either wait aborts the timer and puts the file back at the front of the queue. A failed item does not block later queue entries.
 
 Two default-off naming controls are applied only when a new queue entry is created:
 
@@ -140,7 +146,7 @@ The duplicate check is intentionally best-effort. It catches duplicates in the c
 
 When every member of a new batch is `done`, `writeSyncCheckpoint()` sends a text message beginning with `UCS_SYNC_V1`. `toCloudItem()` already ignores text-only messages, so checkpoints never appear in the gallery. The JSON contains aggregate non-secret audit data only. It is not a full content manifest and must never contain credentials, session strings, absolute paths, EXIF location, or original bytes.
 
-Because browser file capabilities cannot be reconstructed after reload, incomplete records become `needs-file`. They are presented as a dismissible unfinished sync rather than a mandatory reselection flow. Dismissing removes only those local records and incomplete batch metadata; it never deletes Telegram files. Starting a new sync performs the same cleanup automatically, so stale entries cannot block a new selection. Within the same page lifetime, picker metadata remains a resume fingerprint rather than a cryptographic content hash.
+Because browser file capabilities cannot be reconstructed after reload, incomplete records become `needs-file`. They are presented as a dismissible unfinished sync rather than a mandatory reselection flow. Dismissing removes only those local records and incomplete batch metadata; it never deletes Telegram files. A new picker selection can be appended without first removing that stale state. Within the same page lifetime, picker metadata remains a resume fingerprint rather than a cryptographic content hash.
 
 Cancellation sets Teleproto's callback-specific `isCanceled` property when the `AbortSignal` fires. Test cancellation after every Teleproto upgrade because this convention is library-specific.
 
@@ -152,7 +158,7 @@ Teleproto 1.228's custom `File.duration`, `width`, and `height` getters also pas
 
 | Category | Storage and download | In-app preview |
 | --- | --- | --- |
-| Images | All image files are retained as original Telegram documents | Formats decoded by the browser, commonly JPEG, PNG, GIF, WebP, SVG, and AVIF; HEIC/TIFF support varies |
+| Images | All image files are retained as original Telegram documents | Browser-native formats such as JPEG, PNG, GIF, WebP, SVG, and AVIF; HEIC/HEIF has an on-device JPEG fallback; TIFF and uncommon HEIF codecs may remain download-only |
 | Videos | All containers can be uploaded and downloaded; common extensions and `video/*` MIME types are categorized as video | Depends on browser container and codec support; MP4/H.264 and WebM are the most portable |
 | Audio | All audio files can be uploaded and downloaded; common extensions and `audio/*` MIME types are categorized as audio | Depends on browser codec support |
 | Documents, archives, and other files | All binary file types are uploaded and downloaded without an `accept` filter | Generic documents deliberately use download rather than an embedded renderer |
@@ -165,7 +171,7 @@ Normal downloads use Teleproto's native in-memory result and a temporary downloa
 
 Video and audio first use progressive same-origin byte-range playback. `Viewer` creates a random, short-lived stream token; the native media element requests ranges from `__telegram_stream__/<token>/<size>`; the service worker forwards each request to the owning page over a `MessageChannel`; and `TelegramDrive.iterDownload()` fetches at most 1 MB from Telegram. Both normal and suffix ranges are supported so MP4 files whose index is stored at the end can initialize and seek. The media element uses `preload="metadata"` rather than encouraging Chrome to fetch the full resource. When seeking abandons an HTTP request, its `Request.signal` sends a request-ID cancellation message to the page and aborts Teleproto's matching `iterDownload()` signal, freeing the download slot instead of finishing an obsolete range. The native player exposes its normal seek bar, and the viewer adds a buffered-range bar. Closing or changing the file removes the token and aborts every outstanding range; no media response enters Cache Storage, and the browser controls eviction of old decoded/buffered data.
 
-If progressive playback cannot be opened at all because service workers are unavailable or stale, video/audio use the complete-Blob compatibility path within the memory ceiling. Once progressive playback has started, a runtime range or decoder error never silently starts a full-file download: the viewer stops the stream and offers **Retry stream** or **Download original**. Images always use the Blob path. The effective-memory tiers allow 128 MB at 256 MB, 384 MB at 512 MB, 768 MB at 1 GB, and up to 1.5 GB at 2 GB. This retains original preview quality for files within budget instead of downsampling them. Opening the viewer pauses/aborts gallery thumbnail transfers and automatic search/history pagination so the original media request is not stuck behind stress-test traffic. A cached thumbnail is shown immediately behind the loading indicator when available. While the viewer is open, `ArrowLeft` and `ArrowRight` move through the current filtered gallery, visible buttons provide the same navigation, and `Escape` closes the viewer.
+If progressive playback cannot be opened at all because service workers are unavailable or stale, video/audio use the complete-Blob compatibility path within the memory ceiling. Once progressive playback has started, a runtime range or decoder error never silently starts a full-file download: the viewer stops the stream and offers **Retry stream** or **Download original**. Images always use the Blob path. If Chrome rejects a `.heic`/`.heif` image or matching MIME type, the viewer lazy-loads the CSP-compatible `heic-to` decoder and creates a temporary quality-0.9 JPEG Blob for display. Conversion happens only in the current page, preserves the original Telegram document, and revokes both object URLs when the viewer closes. The decoder is intentionally not loaded for ordinary images. Unsupported HEIF variants still fail cleanly with **Download original**. The effective-memory tiers allow 128 MB at 256 MB, 384 MB at 512 MB, 768 MB at 1 GB, and up to 1.5 GB at 2 GB. This retains original preview quality for files within budget instead of downsampling them. Opening the viewer pauses/aborts gallery thumbnail transfers and automatic search/history pagination so the original media request is not stuck behind stress-test traffic. A cached thumbnail is shown immediately behind the loading indicator when available. While the viewer is open, `ArrowLeft` and `ArrowRight` move through the current filtered gallery, visible buttons provide the same navigation, and `Escape` closes the viewer.
 
 Teleproto 1.228 also assumes Node's `fs.WriteStream` constructor exists while closing every download writer. The browser `fs` polyfill intentionally does not provide that constructor, so the unguarded `instanceof` check otherwise throws `Right-hand side of 'instanceof' is not an object` for thumbnails, previews, and downloads. Its TL serializer also rejects typed byte-array views that are not instances of the exact bundled `Buffer`, producing `Bytes or str expected, not object` when serializing Telegram file references. `vite.config.ts` applies narrow source transforms that guard `WriteStream` and convert typed views to the active `Buffer`. The transforms run in both Vite's development dependency optimizer and normal production build; they do not modify `node_modules` or relax the production CSP.
 
@@ -189,7 +195,7 @@ History reads and media-part requests use explicit timeouts. This prevents the i
 
 ## Delete semantics
 
-Single deletion calls `deleteMessages(channel, [messageId], { revoke: true })`. Batch deletion sends at most 100 message IDs per Telegram request. Both permanently remove the underlying Telegram channel messages, then remove their cached thumbnails, and the UI confirms before making the request.
+Single deletion calls `deleteMessages(channel, [messageId], { revoke: true })`. Batch deletion sends at most 100 message IDs per Telegram request. Both permanently remove the underlying Telegram channel messages, then remove their cached thumbnails, and the UI confirms before making the request. Whole-channel deletion is a separate owner-only API operation and its stronger confirmation explicitly says that every file will be removed.
 
 There is no application trash or undo. Any future soft-delete feature needs Telegram-backed metadata or a second archive channel; a local-only flag would not synchronize across devices.
 

@@ -20,6 +20,7 @@ export const SettingsIcon = (props: Props) => <Icon {...props}><circle cx="12" c
 export const MoreIcon = (props: Props) => <Icon {...props}><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none"/></Icon>;
 export const DownloadIcon = (props: Props) => <Icon {...props}><path d="M12 3v12m0 0 5-5m-5 5-5-5M4 20h16"/></Icon>;
 export const TrashIcon = (props: Props) => <Icon {...props}><path d="M4 7h16M9 7V4h6v3m3 0-1 14H7L6 7M10 11v6M14 11v6"/></Icon>;
+export const EditIcon = (props: Props) => <Icon {...props}><path d="m4 16.5-.8 4.3 4.3-.8L19 8.5 15.5 5 4 16.5Z"/><path d="m13.8 6.7 3.5 3.5"/></Icon>;
 export const CloseIcon = (props: Props) => <Icon {...props}><path d="m6 6 12 12M18 6 6 18"/></Icon>;
 export const CheckIcon = (props: Props) => <Icon {...props}><path d="m5 12 4 4L19 6"/></Icon>;
 export const ChevronIcon = (props: Props) => <Icon {...props}><path d="m9 18 6-6-6-6"/></Icon>;

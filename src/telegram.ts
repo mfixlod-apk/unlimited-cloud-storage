@@ -16,6 +16,8 @@ export interface CloudChannel {
   inputEntity: any;
   isPublic: boolean;
   canWrite: boolean;
+  canRename: boolean;
+  canDelete: boolean;
 }
 
 export type ItemKind = "image" | "video" | "audio" | "file";
@@ -75,6 +77,7 @@ const toBlob = (data: Buffer | string | undefined, mime: string): Blob | undefin
 
 const TELEGRAM_REQUEST_TIMEOUT = 45_000;
 const PROGRESSIVE_CHUNK_SIZE = 1024 * 1024;
+const UPLOAD_PART_WORKERS = 3;
 const UNSAFE_FILE_NAME_CHARACTERS = /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g;
 const IMAGE_EXTENSIONS = new Set(["avif", "bmp", "gif", "heic", "heif", "jpeg", "jpg", "png", "tif", "tiff", "webp"]);
 const VIDEO_EXTENSIONS = new Set(["3g2", "3gp", "avi", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "ogv", "webm", "wmv"]);
@@ -274,6 +277,9 @@ export class TelegramDrive {
         inputEntity: dialog.inputEntity,
         isPublic: Boolean((dialog.entity as any)?.username),
         canWrite: Boolean((dialog.entity as any)?.creator || (dialog.entity as any)?.adminRights?.postMessages),
+        canRename: Boolean((dialog.entity as any)?.creator || (dialog.entity as any)?.adminRights?.changeInfo),
+        // Telegram only permits the channel owner to delete the entire channel.
+        canDelete: Boolean((dialog.entity as any)?.creator),
       }))
       .filter((channel: CloudChannel) => Boolean(channel.id));
   }
@@ -292,7 +298,27 @@ export class TelegramDrive {
       inputEntity: await client.getInputEntity(created),
       isPublic: false,
       canWrite: true,
+      canRename: true,
+      canDelete: true,
     };
+  }
+
+  async renameChannel(channel: CloudChannel, title: string): Promise<CloudChannel> {
+    const cleanTitle = title.trim();
+    if (!cleanTitle) throw new Error("Enter a channel name.");
+    if (cleanTitle.length > 128) throw new Error("Keep the channel name under 128 characters.");
+    await this.requiredClient().invoke(new Api.channels.EditTitle({
+      channel: channel.inputEntity,
+      title: cleanTitle,
+    }));
+    return { ...channel, title: cleanTitle };
+  }
+
+  async deleteChannel(channel: CloudChannel) {
+    await this.requiredClient().invoke(new Api.channels.DeleteChannel({ channel: channel.inputEntity }));
+    for (const key of this.messageCache.keys()) {
+      if (key.startsWith(`${channel.id}:`)) this.messageCache.delete(key);
+    }
   }
 
   async getHistory(channel: CloudChannel, offsetId = 0, limit = 100, reverse = false): Promise<HistoryPage> {
@@ -488,7 +514,10 @@ export class TelegramDrive {
     // bounded Blob slices. sendFile only receives Telegram's own InputFile.
     const uploaded = await client.uploadFile({
       file,
-      workers: 1,
+      // Telegram still requires each file to be uploaded separately, but its
+      // file API explicitly supports several parts in flight. Three keeps the
+      // browser memory window small while avoiding a fully serial part stream.
+      workers: UPLOAD_PART_WORKERS,
       onProgress: progress,
     });
     if (signal.aborted) throw new DOMException("Upload cancelled", "AbortError");
@@ -582,20 +611,22 @@ export class TelegramDrive {
     if (!message?.media || (!message.photo && !message.document)) return undefined;
     const file = message.file;
     const mime = file?.mimeType || (message.photo ? "image/jpeg" : "application/octet-stream");
-    const kind: ItemKind = message.photo || mime.startsWith("image/")
+    const fallbackExtension = message.photo ? ".jpg" : "";
+    const name = safeFileName(file?.name, `file-${message.id}${fallbackExtension}`);
+    const extension = fileExtension(name);
+    const kind: ItemKind = message.photo || mime.startsWith("image/") || IMAGE_EXTENSIONS.has(extension)
       ? "image"
-      : message.video || mime.startsWith("video/")
+      : message.video || mime.startsWith("video/") || VIDEO_EXTENSIONS.has(extension)
         ? "video"
-        : message.audio || mime.startsWith("audio/")
+        : message.audio || mime.startsWith("audio/") || AUDIO_EXTENSIONS.has(extension)
           ? "audio"
           : "file";
-    const extension = message.photo ? ".jpg" : "";
     const timestamp = asNumber(message.date);
     const duration = asNumber(message.video?.duration ?? message.audio?.duration);
     return {
       id: Number(message.id),
       channelId,
-      name: safeFileName(file?.name, `${kind}-${message.id}${extension}`),
+      name: file?.name ? name : `${kind}-${message.id}${fallbackExtension}`,
       kind,
       mime,
       size: asNumber(file?.size),

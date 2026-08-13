@@ -7,9 +7,11 @@ globalThis.File = File;
 const { uploadFile } = require(path.join(__dirname, "..", "node_modules", "teleproto", "client", "uploads.js"));
 
 async function main() {
-  const expected = Buffer.from("real browser file bytes: desktop ios android");
+  const expected = Buffer.alloc(2 * 1024 * 1024 + 37, 0x5a);
   const saved = [];
   const progress = [];
+  let activeParts = 0;
+  let maximumActiveParts = 0;
   const client = {
     session: { dcId: 2 },
     _media: {
@@ -17,14 +19,21 @@ async function main() {
       savePart: async (dcId, request, signal) => {
         assert.equal(dcId, 2);
         assert.equal(signal.aborted, false);
-        saved[request.filePart] = Buffer.from(request.bytes);
+        activeParts += 1;
+        maximumActiveParts = Math.max(maximumActiveParts, activeParts);
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 2));
+          saved[request.filePart] = Buffer.from(request.bytes);
+        } finally {
+          activeParts -= 1;
+        }
       },
     },
   };
   const file = new File([expected], "Screenshot From Desktop.png", { type: "image/png" });
   const handle = await uploadFile(client, {
     file,
-    workers: 1,
+    workers: 3,
     onProgress: (value) => progress.push(value),
   });
 
@@ -32,7 +41,9 @@ async function main() {
   assert.deepEqual(Buffer.concat(saved), expected);
   assert.equal(progress.at(0), 0);
   assert.ok(progress.at(-1) >= 1);
-  process.stdout.write(`Browser upload passed: ${saved.length} part, ${expected.length} exact bytes, ${handle.name}\n`);
+  assert.ok(maximumActiveParts > 1);
+  assert.ok(maximumActiveParts <= 3);
+  process.stdout.write(`Browser upload passed: ${saved.length} exact parts, ${maximumActiveParts} concurrent, ${expected.length} bytes, ${handle.name}\n`);
 }
 
 main().catch((error) => {

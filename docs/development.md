@@ -24,6 +24,8 @@ npm run preview
 npm audit --omit=dev
 ```
 
+For a browser-level HEIC decoder smoke test, download a non-sensitive `.heic` fixture outside the repository, then open `scripts/test-heic-browser.html?fixture=file:///absolute/path/to/fixture.heic` in Chrome with `--allow-file-access-from-files`. The rendered result must start with `PASS image/jpeg` and include non-zero dimensions. Do not commit personal photo fixtures.
+
 The service worker registers in development and production because progressive video/audio uses its same-origin byte-range bridge. A worker registered with the development query flag skips all application-shell caching. Use `npm run preview` when testing installation, offline shell behavior, cache upgrades, or GitHub Pages paths.
 
 The Vite dev server also applies a development-only CSP transform that permits inline styles for CSS hot replacement. Production keeps `style-src 'self'` and does not include that relaxation.
@@ -140,6 +142,8 @@ There is currently no automated Telegram integration suite because it would requ
 - channel creation in the app selects the new private broadcast channel;
 - channel creation is available from the channel chooser;
 - the desktop and mobile channel dropdowns create, select, and persist a new private channel without leaving the drive;
+- a permitted channel rename updates Telegram, the dropdown, and the active drive title;
+- whole-channel delete is shown only to the owner, requires confirmation, and returns to channel selection when the active channel is deleted;
 - saved channel restoration;
 - mixed photo, video, audio, document, text, and service messages;
 - multiple history pages without duplicates or gaps;
@@ -159,12 +163,17 @@ There is currently no automated Telegram integration suite because it would requ
 - drag-and-drop upload;
 - upload cancellation and retry after cancellation;
 - a 10,000-entry synthetic or real picker selection does not render one progress row per file or copy originals into IndexedDB;
+- selecting a nested folder discovers files recursively, retains relative paths for queue identity, and enqueues large directory-handle walks in bounded batches;
+- a multi-part upload keeps more than one and no more than three Telegram parts in flight while reproducing the source bytes exactly;
+- the upload ETA appears after one file completes, updates while active, expands when files are appended, and resets its sample after pause/resume;
 - adding another selection while syncing appends to the existing single worker;
 - pause during an upload and during retry backoff, followed by a successful resume;
 - offline recovery waits for connectivity without consuming all retry attempts;
+- a `Please wait N seconds`/`FLOOD_WAIT_N` upload response shows the Telegram cooldown bar, counts down, resumes the same file, and does not consume a retry attempt;
 - reload with unfinished queue records shows a dismissible notice; dismissing removes only unfinished local metadata, and **Sync now** opens a fresh picker without requiring reselection;
 - a completed foreground-sync batch creates one `UCS_SYNC_V1` text checkpoint that stays out of the gallery;
 - image/video/audio preview;
+- a real HEIC fixture previews through the lazy on-device JPEG fallback under the production CSP, while its downloaded original remains byte-identical;
 - progressive video/audio startup before the full file downloads, forward/backward seeking, and the visible buffered-range bar;
 - repeated long-distance seeks cancel superseded Telegram ranges and do not begin a full-file Blob load;
 - MP4 playback where metadata is at the end of the file (suffix-range path);
@@ -201,6 +210,7 @@ There is currently no automated Telegram integration suite because it would requ
 - widths near 390 px, 580 px, 900 px, and desktop;
 - on mobile, the channel switcher remains beside the current category above search/tools, its dropdown stays inside the viewport, and Sync/Settings remain reachable in the top app bar;
 - light and dark appearance on onboarding, authentication, channel selection, the gallery, menus, transfer panels, settings, and destructive confirmations;
+- very tall and very wide images fit fully inside the desktop and mobile viewer without cropping, including while the iOS browser chrome changes height;
 - desktop onboarding scrolls only its left product pane while the right credential form remains stationary; below 900 px it returns to one normal scrolling document;
 - the mobile home navbar stays visible while scrolling, **Log in** reaches the credential form, and **Open drive** restores an authenticated workspace;
 - desktop sidebar and mobile wordmark logos open home without logging out, losing the drive scroll position, or dropping active in-memory upload file references;
