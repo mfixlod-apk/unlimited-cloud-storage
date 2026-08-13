@@ -32,6 +32,7 @@ import {
 } from "./storage";
 import {
   telegramDrive,
+  safeFileName,
   type CloudChannel,
   type CloudItem,
   type ItemKind,
@@ -52,8 +53,13 @@ interface NativeFileHandle {
   createWritable(): Promise<NativeFileWritable>;
 }
 
+interface NativeDirectoryHandle {
+  getFileHandle(name: string, options?: { create?: boolean }): Promise<NativeFileHandle>;
+}
+
 type SaveFilePickerWindow = Window & {
   showSaveFilePicker?: (options?: { suggestedName?: string }) => Promise<NativeFileHandle>;
+  showDirectoryPicker?: () => Promise<NativeDirectoryHandle>;
 };
 
 const friendlyError = (error: unknown) => {
@@ -108,6 +114,35 @@ const fileFingerprint = (channelId: string, file: File) => {
 };
 
 const fileResumeKey = (file: Pick<File, "name" | "size" | "lastModified">) => [file.name, file.size, file.lastModified].join("\u0000");
+
+const uploadRecordResumeKey = (record: UploadQueueRecord) => [record.sourceName || record.name, record.size, record.lastModified].join("\u0000");
+
+const normalizedUploadName = (name: string) => name.normalize("NFKC").trim().toLocaleLowerCase();
+
+const datePrefixedName = (file: File) => {
+  if (/^\d{4}-\d{2}-\d{2}__/.test(file.name)) return file.name;
+  const date = new Date(file.lastModified);
+  if (!Number.isFinite(date.getTime()) || file.lastModified <= 0) return file.name;
+  const prefix = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
+  return `${prefix}__${file.name}`;
+};
+
+const safeDownloadName = (name: string) => {
+  const leaf = name.split(/[\\/]/).pop() || "file";
+  return leaf.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 240) || "file";
+};
+
+const uniqueDownloadName = (name: string, used: Set<string>) => {
+  const safeName = safeDownloadName(name);
+  const dot = safeName.lastIndexOf(".");
+  const base = dot > 0 ? safeName.slice(0, dot) : safeName;
+  const extension = dot > 0 ? safeName.slice(dot) : "";
+  let candidate = safeName;
+  let suffix = 2;
+  while (used.has(candidate.toLocaleLowerCase())) candidate = `${base} (${suffix++})${extension}`;
+  used.add(candidate.toLocaleLowerCase());
+  return candidate;
+};
 
 const retryDelay = (attempt: number) => Math.min(30_000, 1_000 * 3 ** Math.max(0, attempt - 1));
 
@@ -559,6 +594,7 @@ interface UploadSnapshot {
   failed: number;
   needsFile: number;
   skipped: number;
+  duplicatesSkipped: number;
   paused: boolean;
   currentName?: string;
   currentProgress: number;
@@ -574,6 +610,7 @@ const emptyUploadSnapshot = (): UploadSnapshot => ({
   failed: 0,
   needsFile: 0,
   skipped: 0,
+  duplicatesSkipped: 0,
   paused: false,
   currentProgress: 0,
   currentAttempt: 0,
@@ -598,11 +635,16 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
   const [groupByMonth, setGroupByMonth] = useState(false);
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
   const [memoryLimitMb, setMemoryLimitMb] = useState(1024);
+  const [preventDuplicateNames, setPreventDuplicateNames] = useState(false);
+  const [datePrefixUploads, setDatePrefixUploads] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<CloudItem>();
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [checkedIds, setCheckedIds] = useState<Set<number>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [settings, setSettings] = useState(false);
   const [uploadSnapshot, setUploadSnapshot] = useState<UploadSnapshot>(emptyUploadSnapshot);
   const [showUploadPanel, setShowUploadPanel] = useState(false);
@@ -627,6 +669,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
   const uploadLastPaint = useRef(0);
   const uploadRestore = useRef<Promise<void>>(Promise.resolve());
   const downloadAbort = useRef<AbortController | undefined>(undefined);
+  const bulkCancelRequested = useRef(false);
   const sentinel = useRef<HTMLDivElement>(null);
   const offsetRef = useRef(0);
   const historyRequestRef = useRef<string | undefined>(undefined);
@@ -663,11 +706,23 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
 
   useEffect(() => {
     setItems([]);
+    setSelectionMode(false);
+    setCheckedIds(new Set());
     offsetRef.current = 0;
     setHasMore(true);
     void load(true);
   }, [channel.id, load]);
-  useEffect(() => { void localStore.getMemoryLimitMb().then(setMemoryLimitMb); }, []);
+  useEffect(() => {
+    void Promise.all([
+      localStore.getMemoryLimitMb(),
+      localStore.getPreventDuplicateNames(),
+      localStore.getDatePrefixUploads(),
+    ]).then(([memory, preventDuplicates, prefixDates]) => {
+      setMemoryLimitMb(memory);
+      setPreventDuplicateNames(preventDuplicates);
+      setDatePrefixUploads(prefixDates);
+    });
+  }, []);
   useEffect(() => {
     const onOnline = () => setOnline(true);
     const onOffline = () => setOnline(false);
@@ -798,7 +853,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
               armStallTimer();
               uploadStats.current.currentProgress = progress;
               publishUploadSnapshot();
-            }, controller.signal);
+            }, controller.signal, record.name);
             window.clearTimeout(stallTimer);
             await updateUploadRecord(record, "done");
             uploadFiles.current.delete(id);
@@ -935,12 +990,15 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
     const newRecords: UploadQueueRecord[] = [];
     const seen = new Set<string>();
     const resumeMatches = new Map<string, UploadQueueRecord | null>();
+    const knownUploadNames = new Set(items.map((item) => normalizedUploadName(item.name)));
     for (const record of uploadRecords.current.values()) {
       if (record.channelId !== channel.id) continue;
-      const key = fileResumeKey(record);
+      const key = uploadRecordResumeKey(record);
       resumeMatches.set(key, resumeMatches.has(key) ? null : record);
+      knownUploadNames.add(normalizedUploadName(record.name));
     }
     let skipped = 0;
+    let duplicatesSkipped = 0;
     for (const file of files) {
       const identity = fileFingerprint(channel.id, file);
       if (seen.has(identity.id)) continue;
@@ -958,9 +1016,15 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
         // write against that upload.
         continue;
       }
+      const plannedName = existing?.name || safeFileName(datePrefixUploads ? datePrefixedName(file) : file.name, "unnamed");
+      if (preventDuplicateNames && !existing && knownUploadNames.has(normalizedUploadName(plannedName))) {
+        duplicatesSkipped += 1;
+        continue;
+      }
       const record: UploadQueueRecord = existing ? {
         ...existing,
-        name: file.name,
+        sourceName: file.name,
+        name: existing.name,
         type: file.type,
         size: file.size,
         lastModified: file.lastModified,
@@ -973,7 +1037,8 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
         channelId: channel.id,
         batchId,
         fingerprint: identity.fingerprint,
-        name: file.name,
+        sourceName: file.name,
+        name: plannedName,
         type: file.type,
         size: file.size,
         lastModified: file.lastModified,
@@ -990,6 +1055,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
         }
       }
       uploadRecords.current.set(record.id, record);
+      knownUploadNames.add(normalizedUploadName(record.name));
       uploadFiles.current.set(record.id, file);
       activateUploadRecord(record);
       queueUploadId(record.id);
@@ -1016,6 +1082,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
     if (newBatch) await localStore.saveUploadBatchWithRecords(newBatch, changed);
     else await localStore.saveUploadRecords(changed);
     uploadStats.current.skipped += skipped;
+    uploadStats.current.duplicatesSkipped += duplicatesSkipped;
     uploadPaused.current = false;
     uploadStats.current.paused = false;
     publishUploadSnapshot(true);
@@ -1114,8 +1181,116 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
     try {
       await telegramDrive.delete(channel, item);
       setItems((current) => current.filter((entry) => entry.id !== item.id));
+      setCheckedIds((current) => {
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
       setSelected(undefined);
     } catch (cause) { setError(friendlyError(cause)); }
+  };
+
+  const toggleSelectionMode = () => {
+    setSelected(undefined);
+    setShowUploadPanel(false);
+    setSelectionMode((current) => {
+      if (current) setCheckedIds(new Set());
+      return !current;
+    });
+  };
+
+  const toggleChecked = (item: CloudItem) => {
+    setCheckedIds((current) => {
+      const next = new Set(current);
+      next.has(item.id) ? next.delete(item.id) : next.add(item.id);
+      return next;
+    });
+  };
+
+  const checkedItems = items.filter((item) => checkedIds.has(item.id));
+  const allVisibleChecked = visibleItems.length > 0 && visibleItems.every((item) => checkedIds.has(item.id));
+  const toggleAllVisible = () => {
+    setCheckedIds((current) => {
+      const next = new Set(current);
+      if (allVisibleChecked) visibleItems.forEach((item) => next.delete(item.id));
+      else visibleItems.forEach((item) => next.add(item.id));
+      return next;
+    });
+  };
+
+  const downloadSelected = async () => {
+    const targets = [...checkedItems];
+    if (!targets.length || bulkBusy) return;
+    const directoryPicker = (window as SaveFilePickerWindow).showDirectoryPicker;
+    let directory: NativeDirectoryHandle | undefined;
+    if (directoryPicker) {
+      try {
+        directory = await directoryPicker.call(window);
+      } catch (cause) {
+        if (cause instanceof DOMException && cause.name === "AbortError") return;
+        setError(friendlyError(cause));
+        return;
+      }
+    } else if (targets.length > 1 && !window.confirm(`Download ${targets.length} selected files? Your browser may ask you to allow multiple downloads.`)) {
+      return;
+    }
+
+    setBulkBusy(true);
+    bulkCancelRequested.current = false;
+    setError("");
+    try {
+      const usedNames = new Set<string>();
+      for (const item of targets) {
+        if (bulkCancelRequested.current) break;
+        if (!directory) {
+          await downloadItem(item);
+          continue;
+        }
+        const controller = new AbortController();
+        downloadAbort.current = controller;
+        setDownloadEntry({ name: item.name, progress: 0 });
+        const handle = await directory.getFileHandle(uniqueDownloadName(item.name, usedNames), { create: true });
+        const writable = await handle.createWritable();
+        try {
+          await telegramDrive.downloadTo(channel, item, (chunk) => writable.write(chunk), (progress) => setDownloadEntry({ name: item.name, progress }), controller.signal);
+          await writable.close();
+        } catch (cause) {
+          try { await writable.abort(cause); } catch { /* The stream may already be closed. */ }
+          throw cause;
+        } finally {
+          if (downloadAbort.current === controller) downloadAbort.current = undefined;
+        }
+      }
+    } catch (cause) {
+      if (!bulkCancelRequested.current) setError(friendlyError(cause));
+    } finally {
+      downloadAbort.current = undefined;
+      setDownloadEntry(undefined);
+      setBulkBusy(false);
+    }
+  };
+
+  const deleteSelected = async () => {
+    const targets = [...checkedItems];
+    if (!targets.length || bulkBusy) return;
+    if (!window.confirm(`Permanently delete ${targets.length} selected ${targets.length === 1 ? "file" : "files"} from Telegram? This cannot be undone.`)) return;
+    setBulkBusy(true);
+    setError("");
+    try {
+      await telegramDrive.deleteMany(channel, targets);
+      const deletedIds = new Set(targets.map((item) => item.id));
+      setItems((current) => current.filter((item) => !deletedIds.has(item.id)));
+      setCheckedIds(new Set());
+      setSelectionMode(false);
+    } catch (cause) {
+      setError(friendlyError(cause));
+      // Telegram may have accepted an earlier 100-item chunk. Reload the
+      // channel so the gallery reflects the authoritative history.
+      offsetRef.current = 0;
+      await load(true);
+    } finally {
+      setBulkBusy(false);
+    }
   };
 
   const tabs: Array<{ value: Filter; label: string; icon: typeof GridIcon }> = [
@@ -1144,11 +1319,11 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
           <div className="mobile-app-bar"><span className="mobile-wordmark"><CloudIcon />Unlimited Cloud Storage</span><button className="mobile-settings" onClick={() => setSettings(true)} aria-label="Open settings"><SettingsIcon /></button></div>
           <div className="mobile-title-row"><div><h1>{tabs.find((tab) => tab.value === filter)?.label}</h1><p>{visibleItems.length}{hasMore ? "+" : ""} {visibleItems.length === 1 ? "item" : "items"}</p></div><button className="primary-button mobile-upload" onClick={() => uploadSnapshot.total > 0 ? setShowUploadPanel(true) : setShowSyncChooser(true)} aria-label="Sync files now"><UploadIcon /><span>{syncActive ? "Syncing" : "Sync now"}</span></button></div>
           <label className="search-box mobile-search"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label>
-          <div className="mobile-tools"><button className={groupByMonth ? "active" : ""} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth}><CalendarIcon />{groupByMonth ? "Grouped by month" : "Group by month"}</button><button onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon />{sortOrder === "newest" ? "Newest first" : "Oldest first"}</button></div>
+          <div className="mobile-tools"><button className={groupByMonth ? "active" : ""} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth}><CalendarIcon />{groupByMonth ? "Grouped" : "By month"}</button><button onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon />{sortOrder === "newest" ? "Newest" : "Oldest"}</button><button className={selectionMode ? "active" : ""} onClick={toggleSelectionMode} aria-pressed={selectionMode}><CheckIcon />{selectionMode ? "Cancel" : "Select"}</button></div>
         </header>
         <header className="drive-header desktop-drive-header">
           <div><h1>{tabs.find((tab) => tab.value === filter)?.label}</h1><p>{channel.title} <span>·</span> {visibleItems.length} {visibleItems.length === 1 ? "item" : "items"}</p></div>
-          <div className="header-actions"><button className={`secondary-button month-toggle ${groupByMonth ? "active" : ""}`} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth} aria-label="Group files by month" title="Group files by month"><CalendarIcon /><span>{groupByMonth ? "Grouped" : "Group by month"}</span></button><button className="secondary-button sort-toggle" aria-label={`Order: ${sortOrder === "newest" ? "newest first" : "oldest first"}`} title={sortOrder === "newest" ? "Newest first" : "Oldest first"} onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon /><span>{sortOrder === "newest" ? "Newest first" : "Oldest first"}</span></button><label className="search-box"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label><button className="primary-button" onClick={() => uploadSnapshot.total > 0 ? setShowUploadPanel(true) : setShowSyncChooser(true)}><UploadIcon />{syncActive ? `Syncing ${uploadSnapshot.done}/${uploadSnapshot.total}` : "Sync now"}</button></div>
+          <div className="header-actions"><button className={`secondary-button month-toggle ${groupByMonth ? "active" : ""}`} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth} aria-label="Group files by month" title="Group files by month"><CalendarIcon /><span>{groupByMonth ? "Grouped" : "Group by month"}</span></button><button className="secondary-button sort-toggle" aria-label={`Order: ${sortOrder === "newest" ? "newest first" : "oldest first"}`} title={sortOrder === "newest" ? "Newest first" : "Oldest first"} onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon /><span>{sortOrder === "newest" ? "Newest first" : "Oldest first"}</span></button><button className={`secondary-button select-toggle ${selectionMode ? "active" : ""}`} onClick={toggleSelectionMode} aria-pressed={selectionMode}><CheckIcon /><span>{selectionMode ? "Cancel" : "Select"}</span></button><label className="search-box"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label><button className="primary-button" onClick={() => uploadSnapshot.total > 0 ? setShowUploadPanel(true) : setShowSyncChooser(true)}><UploadIcon />{syncActive ? `Syncing ${uploadSnapshot.done}/${uploadSnapshot.total}` : "Sync now"}</button></div>
         </header>
         <div className="mobile-channel-control"><ChannelSwitcher channel={channel} channels={channels} showPublic={showPublicChannels} onShowPublic={onShowPublicChannels} onSelect={onSelectChannel} onCreate={onCreateChannel} onManage={onChangeChannel} /></div>
         <div className="mobile-tabs">{tabs.map(({ value, label }) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div>
@@ -1157,16 +1332,17 @@ function DriveScreen({ account, channel, channels, showPublicChannels, onShowPub
         <input ref={directoryInput} type="file" multiple hidden {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void handleFiles(event.target.files); event.target.value = ""; }} />
         {error && <div className="error-banner drive-error" role="alert"><span>{error}</span><button onClick={() => setError("")}><CloseIcon /></button></div>}
         {loading ? <GallerySkeleton /> : visibleItems.length ? (
-          <MemoryGallery items={visibleItems} channel={channel} groupByMonth={groupByMonth} memoryLimitMb={effectiveMemoryMb} hasMore={hasMore} paused={Boolean(selected)} onOpen={setSelected} onDownload={downloadItem} onDelete={deleteItem} />
+          <MemoryGallery items={visibleItems} channel={channel} groupByMonth={groupByMonth} memoryLimitMb={effectiveMemoryMb} hasMore={hasMore} paused={Boolean(selected)} selectionMode={selectionMode} selectedIds={checkedIds} onOpen={setSelected} onToggleSelection={toggleChecked} onDownload={downloadItem} onDelete={deleteItem} />
         ) : <EmptyState hasItems={items.length > 0} onUpload={() => setShowSyncChooser(true)} />}
         <div ref={sentinel} className="scroll-sentinel">{loadingMore && <><span className="spinner" />{search.trim() ? "Searching older files…" : "Loading older files…"}</>}{!hasMore && items.length > 0 && <span>You've reached the beginning.</span>}</div>
       </main>
       {dragging && <div className="drop-overlay" onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={onDrop}><div><UploadIcon /><h2>Drop to upload</h2><p>Files go directly to {channel.title}</p></div></div>}
       {showSyncChooser && <SyncChooser supportsDirectory={directoryPickerSupported} onPhotos={() => mediaInput.current?.click()} onFiles={() => fileInput.current?.click()} onDirectory={() => directoryInput.current?.click()} onClose={() => setShowSyncChooser(false)} />}
-      {showUploadPanel && (uploadSnapshot.total > 0 || uploadSnapshot.skipped > 0) && <UploadPanel snapshot={uploadSnapshot} onPause={pauseUploads} onResume={() => void resumeUploads()} onSelectMore={() => setShowSyncChooser(true)} onDismiss={() => setShowUploadPanel(false)} />}
-      {downloadEntry && <DownloadPanel entry={downloadEntry} onCancel={() => downloadAbort.current?.abort()} />}
+      {showUploadPanel && (uploadSnapshot.total > 0 || uploadSnapshot.skipped > 0 || uploadSnapshot.duplicatesSkipped > 0) && <UploadPanel snapshot={uploadSnapshot} onPause={pauseUploads} onResume={() => void resumeUploads()} onSelectMore={() => setShowSyncChooser(true)} onDismiss={() => setShowUploadPanel(false)} />}
+      {selectionMode && <BulkActionBar count={checkedItems.length} allVisibleSelected={allVisibleChecked} busy={bulkBusy} onToggleAll={toggleAllVisible} onDownload={() => void downloadSelected()} onDelete={() => void deleteSelected()} onCancel={() => { setSelectionMode(false); setCheckedIds(new Set()); }} />}
+      {downloadEntry && <DownloadPanel entry={downloadEntry} onCancel={() => { bulkCancelRequested.current = bulkBusy; downloadAbort.current?.abort(); }} />}
       {selected && <Viewer key={selected.id} channel={channel} item={selected} previewLimitBytes={previewLimitBytes} onClose={() => setSelected(undefined)} onPrevious={previousItem ? () => setSelected(previousItem) : undefined} onNext={nextItem ? () => setSelected(nextItem) : undefined} onDownload={() => void downloadItem(selected)} onDelete={() => void deleteItem(selected)} />}
-      {settings && <SettingsPanel account={account} memoryLimitMb={memoryLimitMb} effectiveMemoryMb={effectiveMemoryMb} onMemoryLimit={async (value) => { setMemoryLimitMb(value); await localStore.saveMemoryLimitMb(value); }} onClose={() => setSettings(false)} onForget={onForget} onLogOut={onLogOut} />}
+      {settings && <SettingsPanel account={account} memoryLimitMb={memoryLimitMb} effectiveMemoryMb={effectiveMemoryMb} preventDuplicateNames={preventDuplicateNames} datePrefixUploads={datePrefixUploads} onMemoryLimit={async (value) => { setMemoryLimitMb(value); await localStore.saveMemoryLimitMb(value); }} onPreventDuplicateNames={async (value) => { setPreventDuplicateNames(value); await localStore.savePreventDuplicateNames(value); }} onDatePrefixUploads={async (value) => { setDatePrefixUploads(value); await localStore.saveDatePrefixUploads(value); }} onClose={() => setSettings(false)} onForget={onForget} onLogOut={onLogOut} />}
     </div>
   );
 }
@@ -1216,14 +1392,17 @@ function ChannelSwitcher({ channel, channels, showPublic, onShowPublic, onSelect
   return <div className="channel-switcher"><span>Storage channel</span><details className="channel-select" ref={details}><summary aria-label="Switch storage channel"><FolderIcon /><strong title={channel.title}>{channel.title}</strong><ChevronIcon /></summary><div className="channel-dropdown">{availableChannels.map((entry) => <button key={entry.id} onClick={() => select(entry)} disabled={!entry.canWrite} className={entry.id === channel.id ? "selected" : ""}><span><strong>{entry.title}</strong><small>{entry.isPublic ? "Public" : "Private"}{entry.canWrite ? "" : " · Read-only"}</small></span>{entry.id === channel.id && <CheckIcon />}</button>)}<div className="dropdown-create">{creating ? <form className="dropdown-create-form" onSubmit={create}><label>Channel name<input autoFocus maxLength={128} value={createTitle} onChange={(event) => setCreateTitle(event.target.value)} disabled={createBusy} /></label>{createError && <small role="alert">{createError}</small>}<div><button type="button" onClick={() => { setCreating(false); setCreateError(""); }} disabled={createBusy}>Cancel</button><button type="submit" disabled={createBusy}>{createBusy ? <><span className="spinner" />Creating…</> : "Create"}</button></div></form> : <button className="dropdown-create-button" onClick={() => { setCreating(true); setCreateError(""); }}><PlusIcon /><span><strong>Create new channel</strong><small>Private storage channel</small></span></button>}</div><label className="dropdown-public-toggle"><span><strong>Show public</strong><small>May be visible to subscribers</small></span><input type="checkbox" checked={showPublic} onChange={(event) => onShowPublic(event.target.checked)} /></label></div></details><button className="channel-manage" onClick={onManage}>Manage channels</button></div>;
 }
 
-function MemoryGallery({ items, channel, groupByMonth, memoryLimitMb, hasMore, paused, onOpen, onDownload, onDelete }: {
+function MemoryGallery({ items, channel, groupByMonth, memoryLimitMb, hasMore, paused, selectionMode, selectedIds, onOpen, onToggleSelection, onDownload, onDelete }: {
   items: CloudItem[];
   channel: CloudChannel;
   groupByMonth: boolean;
   memoryLimitMb: number;
   hasMore: boolean;
   paused: boolean;
+  selectionMode: boolean;
+  selectedIds: Set<number>;
   onOpen: (item: CloudItem) => void;
+  onToggleSelection: (item: CloudItem) => void;
   onDownload: (item: CloudItem) => Promise<void>;
   onDelete: (item: CloudItem) => Promise<void>;
 }) {
@@ -1257,7 +1436,7 @@ function MemoryGallery({ items, channel, groupByMonth, memoryLimitMb, hasMore, p
       const isLastChunk = groupIndex === groups.length - 1 && index === chunkCount - 1;
       const placeholderCount = hasMore && isLastChunk ? (layout.columns - chunk.length % layout.columns) % layout.columns : 0;
       const estimatedHeight = Math.ceil((chunk.length + placeholderCount) / layout.columns) * layout.rowHeight;
-      return <VirtualGalleryChunk key={`${group.key}:${index}`} items={chunk} channel={channel} paused={paused} placeholderCount={placeholderCount} initiallyActive={currentIndex < 2} estimatedHeight={estimatedHeight} prefetchPx={prefetchPx} onOpen={onOpen} onDownload={onDownload} onDelete={onDelete} />;
+      return <VirtualGalleryChunk key={`${group.key}:${index}`} items={chunk} channel={channel} paused={paused} selectionMode={selectionMode} selectedIds={selectedIds} placeholderCount={placeholderCount} initiallyActive={currentIndex < 2} estimatedHeight={estimatedHeight} prefetchPx={prefetchPx} onOpen={onOpen} onToggleSelection={onToggleSelection} onDownload={onDownload} onDelete={onDelete} />;
     })}</div></section>;
   })}</div>;
 }
@@ -1270,15 +1449,18 @@ const estimateColumns = () => {
 };
 const estimateRowHeight = () => window.innerWidth <= 580 ? 190 : 230;
 
-function VirtualGalleryChunk({ items, channel, paused, placeholderCount, initiallyActive, estimatedHeight, prefetchPx, onOpen, onDownload, onDelete }: {
+function VirtualGalleryChunk({ items, channel, paused, selectionMode, selectedIds, placeholderCount, initiallyActive, estimatedHeight, prefetchPx, onOpen, onToggleSelection, onDownload, onDelete }: {
   items: CloudItem[];
   channel: CloudChannel;
   paused: boolean;
+  selectionMode: boolean;
+  selectedIds: Set<number>;
   placeholderCount: number;
   initiallyActive: boolean;
   estimatedHeight: number;
   prefetchPx: number;
   onOpen: (item: CloudItem) => void;
+  onToggleSelection: (item: CloudItem) => void;
   onDownload: (item: CloudItem) => Promise<void>;
   onDelete: (item: CloudItem) => Promise<void>;
 }) {
@@ -1296,7 +1478,7 @@ function VirtualGalleryChunk({ items, channel, paused, placeholderCount, initial
     observer.observe(element);
     return () => observer.disconnect();
   }, [prefetchPx]);
-  return <div ref={ref} className={`gallery virtual-chunk ${active ? "active" : "parked"}`} style={active ? undefined : { minHeight: `${measuredHeight || estimatedHeight}px` }}>{active && <>{items.map((item) => <MediaCard key={item.id} channel={channel} item={item} pauseThumbnail={paused} onOpen={() => onOpen(item)} onDownload={() => void onDownload(item)} onDelete={() => void onDelete(item)} />)}{Array.from({ length: placeholderCount }, (_, index) => <div className="memory-slot" aria-hidden="true" key={`slot:${index}`}><span /><i /><i /></div>)}</>}</div>;
+  return <div ref={ref} className={`gallery virtual-chunk ${active ? "active" : "parked"}`} style={active ? undefined : { minHeight: `${measuredHeight || estimatedHeight}px` }}>{active && <>{items.map((item) => <MediaCard key={item.id} channel={channel} item={item} pauseThumbnail={paused} selectionMode={selectionMode} selected={selectedIds.has(item.id)} onOpen={() => onOpen(item)} onToggleSelection={() => onToggleSelection(item)} onDownload={() => void onDownload(item)} onDelete={() => void onDelete(item)} />)}{Array.from({ length: placeholderCount }, (_, index) => <div className="memory-slot" aria-hidden="true" key={`slot:${index}`}><span /><i /><i /></div>)}</>}</div>;
 }
 
 function Thumbnail({ channel, item, paused }: { channel: CloudChannel; item: CloudItem; paused: boolean }) {
@@ -1319,12 +1501,13 @@ function Thumbnail({ channel, item, paused }: { channel: CloudChannel; item: Clo
   return <div className={`thumbnail ${loaded ? "loaded" : ""}`}>{url ? <img src={url} alt="" loading="lazy" onError={failed} /> : <Placeholder />}{item.kind === "video" && <span className="play-badge">▶</span>}</div>;
 }
 
-function MediaCard({ channel, item, pauseThumbnail, onOpen, onDownload, onDelete }: { channel: CloudChannel; item: CloudItem; pauseThumbnail: boolean; onOpen: () => void; onDownload: () => void; onDelete: () => void }) {
+function MediaCard({ channel, item, pauseThumbnail, selectionMode, selected, onOpen, onToggleSelection, onDownload, onDelete }: { channel: CloudChannel; item: CloudItem; pauseThumbnail: boolean; selectionMode: boolean; selected: boolean; onOpen: () => void; onToggleSelection: () => void; onDownload: () => void; onDelete: () => void }) {
   const [menu, setMenu] = useState(false);
-  return <article className={`media-card ${item.kind === "file" || item.kind === "audio" ? "document-card" : ""}`}>
-    <button className="media-open" onClick={onOpen}><Thumbnail channel={channel} item={item} paused={pauseThumbnail} /><span className="media-info"><strong title={item.name}>{item.name}</strong><small>{formatDate(item.date)} · {formatSize(item.size)}</small></span></button>
-    <button className="card-menu" aria-label={`Actions for ${item.name}`} onClick={() => setMenu((value) => !value)}><MoreIcon /></button>
-    {menu && <div className="action-menu" onMouseLeave={() => setMenu(false)}><button onClick={() => { setMenu(false); onDownload(); }}><DownloadIcon />Download</button><button className="danger" onClick={() => { setMenu(false); onDelete(); }}><TrashIcon />Delete</button></div>}
+  return <article className={`media-card ${item.kind === "file" || item.kind === "audio" ? "document-card" : ""} ${selected ? "selection-selected" : ""}`}>
+    <button className="media-open" onClick={selectionMode ? onToggleSelection : onOpen} aria-pressed={selectionMode ? selected : undefined}><Thumbnail channel={channel} item={item} paused={pauseThumbnail} /><span className="media-info"><strong title={item.name}>{item.name}</strong><small>{formatDate(item.date)} · {formatSize(item.size)}</small></span></button>
+    {selectionMode && <span className={`selection-check ${selected ? "checked" : ""}`} aria-hidden="true">{selected && <CheckIcon />}</span>}
+    {!selectionMode && <button className="card-menu" aria-label={`Actions for ${item.name}`} onClick={() => setMenu((value) => !value)}><MoreIcon /></button>}
+    {!selectionMode && menu && <div className="action-menu" onMouseLeave={() => setMenu(false)}><button onClick={() => { setMenu(false); onDownload(); }}><DownloadIcon />Download</button><button className="danger" onClick={() => { setMenu(false); onDelete(); }}><TrashIcon />Delete</button></div>}
   </article>;
 }
 
@@ -1356,7 +1539,19 @@ function UploadPanel({ snapshot, onPause, onResume, onSelectMore, onDismiss }: {
   const complete = snapshot.pending === 0 && snapshot.needsFile === 0;
   const title = snapshot.paused ? "Sync paused" : snapshot.needsFile > 0 && snapshot.pending === 0 ? "Selection needed" : snapshot.pending > 0 ? "Syncing files" : snapshot.failed > 0 ? "Sync needs attention" : "Sync complete";
   const processed = snapshot.done + snapshot.failed;
-  return <aside className="upload-panel" aria-live="polite"><div className="panel-title"><div><strong>{title}</strong><small>{snapshot.total.toLocaleString()} queued · {snapshot.done.toLocaleString()} uploaded{snapshot.skipped ? ` · ${snapshot.skipped.toLocaleString()} already synced` : ""}</small></div><button onClick={onDismiss} aria-label="Hide sync status"><CloseIcon /></button></div><div className="upload-summary"><div><span>{snapshot.currentName || (snapshot.needsFile ? `${snapshot.needsFile.toLocaleString()} files need to be selected again` : "Queue ready")}</span><strong>{snapshot.currentName ? `${Math.round(snapshot.currentProgress * 100)}%` : `${processed.toLocaleString()}/${snapshot.total.toLocaleString()}`}</strong></div>{snapshot.currentName && <progress className="progress current-upload-progress" max={1} value={snapshot.currentProgress} />}<progress className="progress" max={Math.max(1, snapshot.total)} value={Math.min(snapshot.total, processed)} />{snapshot.currentName && <small>Current file · attempt {snapshot.currentAttempt} of {MAX_UPLOAD_ATTEMPTS}</small>}<small>Overall queue · {processed.toLocaleString()} of {snapshot.total.toLocaleString()} processed</small></div><div className="upload-counts"><span><strong>{snapshot.pending.toLocaleString()}</strong> waiting</span><span><strong>{snapshot.done.toLocaleString()}</strong> done</span><span><strong>{snapshot.failed.toLocaleString()}</strong> failed</span></div>{snapshot.recent.map((entry) => <div className="upload-row" key={entry.id}><FileIcon /><div><span><strong title={entry.name}>{entry.name}</strong><small>{entry.status === "retrying" ? "retrying" : entry.status}</small></span>{entry.error && <em>{entry.error}</em>}</div></div>)}<div className="upload-actions">{snapshot.pending > 0 && !snapshot.paused && <button className="secondary-button" onClick={onPause}>Pause</button>}{(snapshot.paused || snapshot.failed > 0) && <button className="secondary-button" onClick={onResume}>{snapshot.failed > 0 ? "Retry failed" : "Resume"}</button>}{snapshot.needsFile > 0 && <button className="primary-button" onClick={onSelectMore}>Select unfinished files</button>}{complete && <button className="secondary-button" onClick={onSelectMore}>Sync more</button>}</div><p className="upload-foreground-note">Uploads retry up to {MAX_UPLOAD_ATTEMPTS} times and continue with the next file after a permanent failure. Keep the app in the foreground.</p></aside>;
+  return <aside className="upload-panel" aria-live="polite"><div className="panel-title"><div><strong>{title}</strong><small>{snapshot.total.toLocaleString()} queued · {snapshot.done.toLocaleString()} uploaded{snapshot.skipped ? ` · ${snapshot.skipped.toLocaleString()} already synced` : ""}{snapshot.duplicatesSkipped ? ` · ${snapshot.duplicatesSkipped.toLocaleString()} duplicate names skipped` : ""}</small></div><button onClick={onDismiss} aria-label="Hide sync status"><CloseIcon /></button></div><div className="upload-summary"><div><span>{snapshot.currentName || (snapshot.needsFile ? `${snapshot.needsFile.toLocaleString()} files need to be selected again` : "Queue ready")}</span><strong>{snapshot.currentName ? `${Math.round(snapshot.currentProgress * 100)}%` : `${processed.toLocaleString()}/${snapshot.total.toLocaleString()}`}</strong></div>{snapshot.currentName && <progress className="progress current-upload-progress" max={1} value={snapshot.currentProgress} />}<progress className="progress" max={Math.max(1, snapshot.total)} value={Math.min(snapshot.total, processed)} />{snapshot.currentName && <small>Current file · attempt {snapshot.currentAttempt} of {MAX_UPLOAD_ATTEMPTS}</small>}<small>Overall queue · {processed.toLocaleString()} of {snapshot.total.toLocaleString()} processed</small></div><div className="upload-counts"><span><strong>{snapshot.pending.toLocaleString()}</strong> waiting</span><span><strong>{snapshot.done.toLocaleString()}</strong> done</span><span><strong>{snapshot.failed.toLocaleString()}</strong> failed</span></div>{snapshot.recent.map((entry) => <div className="upload-row" key={entry.id}><FileIcon /><div><span><strong title={entry.name}>{entry.name}</strong><small>{entry.status === "retrying" ? "retrying" : entry.status}</small></span>{entry.error && <em>{entry.error}</em>}</div></div>)}<div className="upload-actions">{snapshot.pending > 0 && !snapshot.paused && <button className="secondary-button" onClick={onPause}>Pause</button>}{(snapshot.paused || snapshot.failed > 0) && <button className="secondary-button" onClick={onResume}>{snapshot.failed > 0 ? "Retry failed" : "Resume"}</button>}{snapshot.needsFile > 0 && <button className="primary-button" onClick={onSelectMore}>Select unfinished files</button>}{complete && <button className="secondary-button" onClick={onSelectMore}>Sync more</button>}</div><p className="upload-foreground-note">Uploads retry up to {MAX_UPLOAD_ATTEMPTS} times and continue with the next file after a permanent failure. Keep the app in the foreground.</p></aside>;
+}
+
+function BulkActionBar({ count, allVisibleSelected, busy, onToggleAll, onDownload, onDelete, onCancel }: {
+  count: number;
+  allVisibleSelected: boolean;
+  busy: boolean;
+  onToggleAll: () => void;
+  onDownload: () => void;
+  onDelete: () => void;
+  onCancel: () => void;
+}) {
+  return <aside className="bulk-action-bar" aria-label="Selected file actions"><strong>{count.toLocaleString()} selected</strong><button className="bulk-select-all" onClick={onToggleAll} disabled={busy}>{allVisibleSelected ? "Clear visible" : "Select all visible"}</button><span /><button onClick={onDownload} disabled={!count || busy}><DownloadIcon />Download</button><button className="danger" onClick={onDelete} disabled={!count || busy}><TrashIcon />Delete</button><button className="bulk-close" onClick={onCancel} disabled={busy} aria-label="Exit selection mode"><CloseIcon /></button></aside>;
 }
 
 function DownloadPanel({ entry, onCancel }: { entry: DownloadEntry; onCancel: () => void }) {
@@ -1463,11 +1658,15 @@ function ProgressivePlayer({ kind, src, poster, streaming, onError }: { kind: "v
   return <div className={`progressive-player ${kind}`}>{kind === "video" ? <video {...common} poster={poster || undefined} playsInline /> : <audio {...common} />}{streaming && <div className="stream-buffer" aria-label="Streaming buffer"><span>Buffered</span><progress max={duration || 1} value={Math.min(buffered, duration || buffered)} /><small>{duration > 0 ? `${Math.round(buffered)}s` : "Connecting…"}</small></div>}</div>;
 }
 
-function SettingsPanel({ account, memoryLimitMb, effectiveMemoryMb, onMemoryLimit, onClose, onForget, onLogOut }: {
+function SettingsPanel({ account, memoryLimitMb, effectiveMemoryMb, preventDuplicateNames, datePrefixUploads, onMemoryLimit, onPreventDuplicateNames, onDatePrefixUploads, onClose, onForget, onLogOut }: {
   account: any;
   memoryLimitMb: number;
   effectiveMemoryMb: number;
+  preventDuplicateNames: boolean;
+  datePrefixUploads: boolean;
   onMemoryLimit: (value: number) => Promise<void>;
+  onPreventDuplicateNames: (value: boolean) => Promise<void>;
+  onDatePrefixUploads: (value: boolean) => Promise<void>;
   onClose: () => void;
   onForget: () => Promise<void>;
   onLogOut: () => Promise<void>;
@@ -1478,6 +1677,7 @@ function SettingsPanel({ account, memoryLimitMb, effectiveMemoryMb, onMemoryLimi
     <aside className="settings-panel">
       <header><div><span className="eyebrow">Preferences</span><h2>Settings</h2></div><button onClick={onClose}><CloseIcon /></button></header>
       <section><h3>Account</h3><div className="settings-row"><span className="avatar">{userName(account).slice(0, 1).toUpperCase()}</span><div><strong>{userName(account)}</strong><small>Telegram account</small></div></div></section>
+      <section><h3>Uploads</h3><label className="settings-toggle"><span><strong>Prevent duplicate filenames</strong><small>Skip a file when the same name is already discovered in this channel or its local sync queue. Unloaded older history may not be checked.</small></span><input type="checkbox" checked={preventDuplicateNames} onChange={(event) => void onPreventDuplicateNames(event.target.checked)} /></label><label className="settings-toggle"><span><strong>Prefix names with media date</strong><small>Upload as YYYY-MM-DD__filename using the date supplied by the device picker. Existing Telegram files are unchanged.</small></span><input type="checkbox" checked={datePrefixUploads} onChange={(event) => void onDatePrefixUploads(event.target.checked)} /></label></section>
       <section><h3>Performance</h3><label className="memory-setting"><span><strong>Memory limit</strong><small>Controls off-screen gallery preloading and full-file preview fallback.</small></span><select value={memoryLimitMb} onChange={(event) => void onMemoryLimit(Number(event.target.value))}><option value={256}>256 MB</option><option value={512}>512 MB</option><option value={1024}>1 GB (default)</option><option value={2048}>2 GB</option></select><em>{effectiveMemoryMb < memoryLimitMb ? `Adjusted to ${formatSize(effectiveMemoryMb * 1024 * 1024)} for this device.` : "The browser may use less when content is off screen."}</em></label></section>
       <section><h3>Privacy & device</h3><div className="security-box"><ShieldIcon /><p><strong>Browser-only connection</strong>Credentials and session data stay in IndexedDB on this browser profile. Files are not end-to-end encrypted by this app.</p></div><button className="settings-action" onClick={clearCache}><RefreshIcon /><span><strong>{cleared ? "Thumbnail cache cleared" : "Clear thumbnail cache"}</strong><small>Original files remain in Telegram</small></span>{cleared && <CheckIcon />}</button><button className="settings-action" onClick={() => void onForget()}><CloseIcon /><span><strong>Forget this browser</strong><small>Remove local credentials, session, and cache only</small></span></button></section>
       <section className="danger-zone"><button onClick={() => void onLogOut()}><TrashIcon />Log out of Telegram</button><small>This revokes this app's Telegram session and clears local data.</small></section>

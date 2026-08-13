@@ -131,6 +131,13 @@ Files use a deterministic two-step Teleproto path: `client.uploadFile()` returns
 
 Foreground sync has no application-level selection-count cap. It persists only lightweight queue records, retains current-page `File` references, and feeds the same upload method sequentially. A two-minute no-progress watchdog aborts a stalled request. Transient failures retry up to five times with exponential backoff; detected Telegram flood waits are honored for a bounded foreground interval, and offline time does not consume retry attempts. A failed item does not block later queue entries.
 
+Two default-off naming controls are applied only when a new queue entry is created:
+
+- date prefixing sends `YYYY-MM-DD__original-name` using `File.lastModified`, the date made available by the system picker;
+- duplicate-name prevention normalizes outgoing names with Unicode NFKC, trims them, and compares case-insensitively against discovered channel items and every local queue record for that channel.
+
+The duplicate check is intentionally best-effort. It catches duplicates in the current selection, the persistent local queue, and history already loaded by the gallery. It does not pull the entire channel before an upload because that would make syncing a very large channel slow and flood-wait prone. It compares names rather than content hashes, so same bytes under different names are allowed and different bytes under the same name are skipped. Neither setting renames an existing Telegram message or the source file.
+
 When every member of a new batch is `done`, `writeSyncCheckpoint()` sends a text message beginning with `UCS_SYNC_V1`. `toCloudItem()` already ignores text-only messages, so checkpoints never appear in the gallery. The JSON contains aggregate non-secret audit data only. It is not a full content manifest and must never contain credentials, session strings, absolute paths, EXIF location, or original bytes.
 
 Because browser file capabilities cannot be reconstructed after reload, incomplete records become `needs-file`. A later picker selection first matches channel, relative path when supplied, filename, size, and modification time. If a picker changes the path, a unique filename/size/modification-time match is accepted. This is a resume fingerprint, not a cryptographic content hash.
@@ -182,7 +189,7 @@ History reads and media-part requests use explicit timeouts. This prevents the i
 
 ## Delete semantics
 
-Deletion calls `deleteMessages(channel, [messageId], { revoke: true })`. This permanently removes the underlying Telegram channel message, then removes its cached thumbnail.
+Single deletion calls `deleteMessages(channel, [messageId], { revoke: true })`. Batch deletion sends at most 100 message IDs per Telegram request. Both permanently remove the underlying Telegram channel messages, then remove their cached thumbnails, and the UI confirms before making the request.
 
 There is no application trash or undo. Any future soft-delete feature needs Telegram-backed metadata or a second archive channel; a local-only flag would not synchronize across devices.
 

@@ -115,3 +115,19 @@ The option is off by default so a successful login does not create a persistent 
 **Why:** Browser storage cannot safely duplicate a 10,000-file photo library, while iOS and other mobile browsers cannot restore picker capabilities or guarantee periodic background execution. Aggregate UI state also avoids retaining thousands of progress components.
 
 **Consequences:** Users must keep the PWA open. Reloaded unfinished queues require the user to select those files again. Native automatic photo backup remains a separate product phase and must not be implied by the PWA UI.
+
+## 15. Best-effort upload naming; no location filenames
+
+**Decision:** Offer default-off duplicate-name skipping and a `YYYY-MM-DD__` outgoing filename prefix. Use the picker-provided file date, compare normalized names only against discovered history plus the local queue, and do not add location to filenames.
+
+**Why:** These controls improve chronological search and avoid common accidental re-uploads without hashing or loading every original and without forcing a full Telegram history scan. Exact location in a filename would permanently disclose sensitive metadata to Telegram and every channel reader, while reverse geocoding would add a third-party network/privacy dependency.
+
+**Consequences:** Duplicate prevention is deliberately best-effort, not content deduplication. Picker dates can differ from original EXIF/QuickTime capture dates after export or editing. Rich metadata tagging needs a separately designed Telegram-backed index, explicit privacy controls, and migration behavior.
+
+## 16. Bulk actions operate on loaded visible items
+
+**Decision:** Keep selection in memory as message IDs. “Select all visible” selects loaded items matching the active filter/search. Batch deletion is confirmed and chunked; bulk download prefers a user-chosen directory and otherwise falls back to sequential browser downloads.
+
+**Why:** This remains honest about undiscovered history, keeps selection lightweight, avoids a server-side archive job, and preserves bounded download memory on supporting browsers.
+
+**Consequences:** Browsers without directory-write support may prompt for or block multiple downloads. Selecting an entire not-yet-loaded channel requires first completing history discovery/search.

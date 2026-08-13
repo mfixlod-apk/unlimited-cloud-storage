@@ -13,6 +13,7 @@ export interface UploadQueueRecord {
   channelId: string;
   batchId: string;
   fingerprint: string;
+  sourceName?: string;
   name: string;
   type: string;
   size: number;
@@ -93,6 +94,10 @@ export const localStore = {
   clearChannelId: () => dbPromise.then((db) => db.delete("config", "channelId")),
   getMemoryLimitMb: () => dbPromise.then(async (db) => Number(await db.get("config", "memoryLimitMb")) || 1024),
   saveMemoryLimitMb: (value: number) => dbPromise.then((db) => db.put("config", value, "memoryLimitMb")),
+  getPreventDuplicateNames: () => dbPromise.then(async (db) => Boolean(await db.get("config", "preventDuplicateNames"))),
+  savePreventDuplicateNames: (value: boolean) => dbPromise.then((db) => db.put("config", value, "preventDuplicateNames")),
+  getDatePrefixUploads: () => dbPromise.then(async (db) => Boolean(await db.get("config", "datePrefixUploads"))),
+  saveDatePrefixUploads: (value: boolean) => dbPromise.then((db) => db.put("config", value, "datePrefixUploads")),
   getThumbnail: (key: string) => dbPromise.then((db) => db.get("thumbnails", key)),
   saveThumbnail: (key: string, blob: Blob) => dbPromise.then((db) => db.put("thumbnails", blob, key)),
   deleteThumbnail: (key: string) => dbPromise.then((db) => db.delete("thumbnails", key)),

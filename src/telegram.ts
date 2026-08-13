@@ -87,7 +87,7 @@ const base64Url = (value: Uint8Array) => Buffer.from(value)
   .replace(/=+$/g, "");
 const thumbnailCacheKey = (channelId: string, messageId: number) => `v3:${channelId}:${messageId}`;
 
-const safeFileName = (value: unknown, fallback: string) => {
+export const safeFileName = (value: unknown, fallback: string) => {
   const raw = typeof value === "string" ? value : "";
   const leaf = raw.split(/[\\/]/).pop()?.replace(UNSAFE_FILE_NAME_CHARACTERS, "").trim();
   return leaf?.slice(0, 255) || fallback;
@@ -471,6 +471,7 @@ export class TelegramDrive {
     file: File,
     onProgress: (value: number) => void,
     signal: AbortSignal,
+    uploadName = file.name,
   ) {
     if (signal.aborted) throw new DOMException("Upload cancelled", "AbortError");
     const progress = ((value: number) => onProgress(Math.max(0, Math.min(1, value)))) as ((value: number) => void) & {
@@ -479,7 +480,7 @@ export class TelegramDrive {
     signal.addEventListener("abort", () => {
       progress.isCanceled = true;
     }, { once: true });
-    const name = safeFileName(file.name, "unnamed");
+    const name = safeFileName(uploadName, "unnamed");
     const kind = uploadKind(file);
     const client = this.requiredClient();
     // Use the real picker File here. Unpatched Teleproto understands it as a
@@ -536,6 +537,15 @@ export class TelegramDrive {
     await this.requiredClient().deleteMessages(channel.inputEntity, [item.id], { revoke: true });
     await localStore.deleteThumbnail(thumbnailCacheKey(item.channelId, item.id));
     this.messageCache.delete(`${channel.id}:${item.id}`);
+  }
+
+  async deleteMany(channel: CloudChannel, items: CloudItem[]) {
+    for (let index = 0; index < items.length; index += 100) {
+      const chunk = items.slice(index, index + 100);
+      await this.requiredClient().deleteMessages(channel.inputEntity, chunk.map((item) => item.id), { revoke: true });
+      await Promise.all(chunk.map((item) => localStore.deleteThumbnail(thumbnailCacheKey(item.channelId, item.id)).catch(() => undefined)));
+      for (const item of chunk) this.messageCache.delete(`${channel.id}:${item.id}`);
+    }
   }
 
   private async getMessage(channel: CloudChannel, id: number) {

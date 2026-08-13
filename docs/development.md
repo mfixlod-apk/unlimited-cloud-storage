@@ -178,6 +178,11 @@ There is currently no automated Telegram integration suite because it would requ
 - large preview guard and large-download warning;
 - 256 MB, 512 MB, 1 GB, and 2 GB memory-limit behavior, including device-memory adjustment;
 - deleting a message and confirming it disappears in Telegram;
+- duplicate-name prevention catches a duplicate within one picker selection, a queued duplicate, and a duplicate in loaded channel history while allowing same-name uploads when disabled;
+- date-prefix uploads use `YYYY-MM-DD__filename`, preserve extensions and original source names, and do not rename existing channel items;
+- selection mode toggles individual cards and **Select all visible** respects the active type/search filter;
+- multi-file download streams into a chosen directory where supported, avoids overwriting same-named files in one batch, and falls back to sequential browser downloads;
+- multi-file delete requires confirmation, removes selected Telegram messages and cached thumbnails, and reloads history after a partial Telegram failure;
 - network loss during upload/download.
 
 ### Local data and PWA

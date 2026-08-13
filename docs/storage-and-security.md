@@ -17,6 +17,8 @@ The app does not provide end-to-end or zero-knowledge encryption. Telegram recei
 | `connection` | `{ apiId, apiHash, session }` | Restore the Telegram client when the default-off “Keep me signed in” option is enabled |
 | `channelId` | `string` | Rediscover and restore the selected broadcast channel |
 | `memoryLimitMb` | `number` | User-selected gallery/preview memory budget; defaults to 1024 MB |
+| `preventDuplicateNames` | `boolean` | Skip newly selected uploads whose normalized outgoing filename is already known in the selected channel/local queue; defaults to false |
+| `datePrefixUploads` | `boolean` | Prefix new outgoing filenames with `YYYY-MM-DD__` using the picker-provided file date; defaults to false |
 
 ### `thumbnails`
 
@@ -129,6 +131,7 @@ Do not implement MTProto primitives locally. Prefer maintained library updates, 
 - Service-worker changes still ignore cross-origin requests.
 - Object URLs and abort controllers are cleaned up on unmount/cancellation.
 - Destructive Telegram actions require explicit confirmation.
+- Location metadata is never copied into outgoing filenames. A future location tag must be explicit opt-in, previewed before upload, coarse by default, and documented as permanently visible to Telegram/channel readers.
 - Large files are not copied repeatedly or converted to base64.
 - New external links use `noopener`/`noreferrer` when opened in a new tab.
 - UI errors are useful but do not expose raw authentication request details.

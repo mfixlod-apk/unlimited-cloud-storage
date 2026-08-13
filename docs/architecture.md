@@ -46,8 +46,8 @@ Important screen components:
 - `CredentialsScreen` validates the user's API ID and hash.
 - `AuthScreen` coordinates QR, phone-code, and 2FA callbacks.
 - `ChannelScreen` displays eligible broadcast channels with an opt-in public-channel toggle.
-- `DriveScreen` owns lightweight history metadata, filters, month grouping, uploads, viewer state, and infinite scrolling.
-- `SettingsPanel` exposes the memory budget, cache clearing, device forgetting, and Telegram logout.
+- `DriveScreen` owns lightweight history metadata, filters, month grouping, uploads, bulk selection, viewer state, and infinite scrolling.
+- `SettingsPanel` exposes upload naming/duplicate preferences, the memory budget, cache clearing, device forgetting, and Telegram logout.
 
 The UI is currently kept in one file because the product is still small. If `App.tsx` grows substantially, split by screen while keeping orchestration in `App` and Telegram operations behind `TelegramDrive`.
 
@@ -138,6 +138,8 @@ Off-screen chunks unmount their card and thumbnail components, revoke Blob URLs,
 
 ```text
 File picker, directory picker, or drop
+  → optionally prefix the outgoing name with the picker-provided media date
+  → optionally skip a normalized name already discovered in this channel/queue
   → fingerprint and persist lightweight queue entries
   → retain picker File references for this page lifetime only
   → upload one file at a time with bounded retries
@@ -149,6 +151,16 @@ File picker, directory picker, or drop
 ```
 
 The queue UI keeps aggregate counters and at most six recent rows rather than rendering every selected item. This keeps 10,000-file selections from creating a 10,000-node progress panel. IndexedDB stores metadata, not original bytes. After reload, unfinished records become `needs-file`; selecting the same files again relinks them by picker metadata and resumes the original batches.
+
+Upload naming changes only the Telegram document filename at send time; it never renames the source file. The date prefix is `YYYY-MM-DD__` and uses the date exposed through the browser picker. Duplicate-name prevention uses Unicode-normalized, case-insensitive comparisons against discovered history and local queue entries. It does not force a potentially expensive full-channel scan.
+
+### Bulk actions
+
+Selection mode stores only Telegram message IDs in React state. **Select all visible** means all currently loaded items that match the active filter/search; it does not claim to select undiscovered history. Supporting browsers choose one destination directory and stream selected downloads into uniquely named files. Other browsers use sequential normal downloads and may require permission for multiple downloads. Batch deletion uses Telegram chunks of at most 100 message IDs, removes cached thumbnails, and always requires one destructive confirmation.
+
+### PWA background boundary
+
+The web app cannot promise continued transfers after iOS suspends it. A Dynamic Island surface is an iOS Live Activity supplied by a native WidgetKit/ActivityKit extension; it is a status display, not background runtime. A future native product could show progress there, but reliable background upload also needs native background-transfer and file-library code. Telegram MTProto over a page-owned WebSocket does not become a supported iOS background transfer merely by adding a Live Activity.
 
 ### View or download
 

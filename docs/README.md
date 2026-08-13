@@ -19,8 +19,8 @@ The MVP includes:
 - serialized Telegram session restoration;
 - creation and selection of a private broadcast channel;
 - paginated history, local filtering/search, and thumbnail caching;
-- sequential uploads with progress and cancellation;
-- viewing, downloading, and deleting media messages;
+- durable sequential uploads with retry, date-prefix and duplicate-name options;
+- viewing plus single/bulk downloading and confirmed single/bulk deletion of media messages;
 - a responsive React UI and installable static PWA;
 - GitHub Pages deployment without repository secrets.
 
