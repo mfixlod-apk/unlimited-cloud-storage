@@ -1736,7 +1736,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
         <input ref={directoryInput} type="file" multiple hidden {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void handleFiles(event.target.files); event.target.value = ""; }} />
         {error && <div className="error-banner drive-error" role="alert"><span>{error}</span><button onClick={() => setError("")}><CloseIcon /></button></div>}
         {loading ? <GallerySkeleton /> : visibleItems.length ? (
-          <MemoryGallery items={visibleItems} channel={channel} groupByMonth={groupByMonth} memoryLimitMb={effectiveMemoryMb} hasMore={hasMore} paused={Boolean(selected)} selectionMode={selectionMode} selectedIds={checkedIds} onOpen={setSelected} onToggleSelection={toggleChecked} onDownload={downloadItem} onDelete={deleteItem} />
+          <MemoryGallery items={visibleItems} channel={channel} groupByMonth={groupByMonth} sortOrder={sortOrder} memoryLimitMb={effectiveMemoryMb} hasMore={hasMore} paused={Boolean(selected)} selectionMode={selectionMode} selectedIds={checkedIds} onOpen={setSelected} onToggleSelection={toggleChecked} onDownload={downloadItem} onDelete={deleteItem} />
         ) : <EmptyState hasItems={items.length > 0} onUpload={openSync} />}
         <div ref={sentinel} className="scroll-sentinel">{loadingMore && <><span className="spinner" />{search.trim() ? "Searching older files…" : "Loading older files…"}</>}{!hasMore && items.length > 0 && <span>You've reached the beginning.</span>}</div>
       </main>
@@ -1830,10 +1830,11 @@ function ChannelSwitcher({ channel, channels, showPublic, onShowPublic, onSelect
   return <div className="channel-switcher"><span>Storage channel</span><details className="channel-select" ref={details}><summary aria-label="Switch storage channel"><FolderIcon /><strong title={channel.title}>{channel.title}</strong><ChevronIcon /></summary><div className="channel-dropdown">{availableChannels.map((entry) => editingId === entry.id ? <form key={entry.id} className="dropdown-channel-edit" onSubmit={(event) => void saveRename(event, entry)}><input autoFocus maxLength={128} value={editTitle} onChange={(event) => setEditTitle(event.target.value)} disabled={channelBusy === entry.id} aria-label={`New name for ${entry.title}`} /><button type="button" onClick={() => { setEditingId(undefined); setChannelError(""); }} disabled={channelBusy === entry.id}>Cancel</button><button type="submit" disabled={channelBusy === entry.id}>Save</button></form> : <div className={`dropdown-channel-row ${entry.id === channel.id ? "selected" : ""}`} key={entry.id}><button className="dropdown-channel-choice" onClick={() => select(entry)} disabled={!entry.canWrite || Boolean(channelBusy)}><span><strong>{entry.title}</strong><small>{entry.isPublic ? "Public" : "Private"}{entry.canWrite ? "" : " · Read-only"}</small></span>{entry.id === channel.id && <CheckIcon />}</button>{(entry.canRename || entry.canDelete) && <div className="dropdown-channel-actions">{entry.canRename && <button onClick={() => { setEditingId(entry.id); setEditTitle(entry.title); setChannelError(""); }} disabled={Boolean(channelBusy)} aria-label={`Rename ${entry.title}`} title="Rename channel"><EditIcon /></button>}{entry.canDelete && <button className="danger" onClick={() => void remove(entry)} disabled={Boolean(channelBusy)} aria-label={`Delete ${entry.title}`} title="Delete channel">{channelBusy === entry.id ? <span className="spinner" /> : <TrashIcon />}</button>}</div>}</div>)}{channelError && <small className="dropdown-channel-error" role="alert">{channelError}</small>}<div className="dropdown-create">{creating ? <form className="dropdown-create-form" onSubmit={create}><label>Channel name<input autoFocus maxLength={128} value={createTitle} onChange={(event) => setCreateTitle(event.target.value)} disabled={createBusy} /></label>{createError && <small role="alert">{createError}</small>}<div><button type="button" onClick={() => { setCreating(false); setCreateError(""); }} disabled={createBusy}>Cancel</button><button type="submit" disabled={createBusy}>{createBusy ? <><span className="spinner" />Creating…</> : "Create"}</button></div></form> : <button className="dropdown-create-button" onClick={() => { setCreating(true); setCreateError(""); }}><PlusIcon /><span><strong>Create new channel</strong><small>Private storage channel</small></span></button>}</div><label className="dropdown-public-toggle"><span><strong>Show public</strong><small>May be visible to subscribers</small></span><input type="checkbox" checked={showPublic} onChange={(event) => onShowPublic(event.target.checked)} /></label></div></details><button className="channel-manage" onClick={onManage}>Manage channels</button></div>;
 }
 
-function MemoryGallery({ items, channel, groupByMonth, memoryLimitMb, hasMore, paused, selectionMode, selectedIds, onOpen, onToggleSelection, onDownload, onDelete }: {
+function MemoryGallery({ items, channel, groupByMonth, sortOrder, memoryLimitMb, hasMore, paused, selectionMode, selectedIds, onOpen, onToggleSelection, onDownload, onDelete }: {
   items: CloudItem[];
   channel: CloudChannel;
   groupByMonth: boolean;
+  sortOrder: SortOrder;
   memoryLimitMb: number;
   hasMore: boolean;
   paused: boolean;
@@ -1864,8 +1865,11 @@ function MemoryGallery({ items, channel, groupByMonth, memoryLimitMb, hasMore, p
       current.items.push(item);
       grouped.set(key, current);
     }
-    return Array.from(grouped, ([key, value]) => ({ key, ...value }));
-  }, [groupByMonth, items]);
+    return Array.from(grouped, ([key, value]) => ({ key, ...value }))
+      .sort((left, right) => sortOrder === "newest"
+        ? right.key.localeCompare(left.key)
+        : left.key.localeCompare(right.key));
+  }, [groupByMonth, items, sortOrder]);
   let chunkIndex = 0;
   return <div className={groupByMonth ? "month-groups" : "gallery-groups"} aria-live="polite">{groups.map((group, groupIndex) => {
     const chunkCount = Math.ceil(group.items.length / chunkSize);

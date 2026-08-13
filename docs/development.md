@@ -148,7 +148,7 @@ There is currently no automated Telegram integration suite because it would requ
 - mixed photo, video, audio, document, text, and service messages;
 - multiple history pages without duplicates or gaps;
 - empty channel and empty search states.
-- month grouping across year boundaries;
+- month grouping across year boundaries, with `YYYY-MM` groups explicitly ordered newest-to-oldest or oldest-to-newest with the active sort control;
 - switching between newest-first and true Telegram oldest-first pagination;
 - `+` remains on the discovered-file count until history reaches the beginning;
 - active search scans to the beginning and finds names outside the initially loaded pages;
