@@ -1,0 +1,30 @@
+{
+  "name": "unlimited-cloud-storage",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p tsconfig.app.json && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json"
+  },
+  "dependencies": {
+    "buffer": "^6.0.3",
+    "idb": "^8.0.3",
+    "qrcode": "^1.5.4",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "teleproto": "^1.228.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.2.1",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.1",
+    "vite-plugin-node-polyfills": "^0.24.0"
+  }
+}

@@ -1,0 +1,187 @@
+# Telegram integration
+
+## Client choice
+
+The app uses `teleproto`, the maintained GramJS-compatible MTProto client. It connects with `PromisedWebSockets`, which is required because a GitHub Pages application cannot open raw TCP connections.
+
+The client is configured in [`src/telegram.ts`](../src/telegram.ts):
+
+- five initial connection retries;
+- five reconnect retries;
+- four request retries;
+- at most two concurrent downloads;
+- a 30-second automatic flood-wait threshold;
+- library logging disabled to reduce accidental exposure of session-related details;
+- a single upload worker for conservative request behavior.
+
+Keep the Telegram client as a singleton. Authentication codes and QR tokens are tied to the connected session; reconnecting during an authentication flow can invalidate them.
+
+## API credentials
+
+Telegram requires an `api_id` and `api_hash` before a client can connect. This project has no application-wide credentials. Users enter their own values from `my.telegram.org/apps`.
+
+The credentials are passed to `TelegramDrive.connect()`. They are persisted only when the user enables “Keep me signed in.” Never add fallback credentials to source code, Vite environment variables, GitHub Actions, or the generated bundle.
+
+## QR authentication
+
+`AuthScreen` starts `TelegramDrive.loginWithQr()` with an `AbortController`.
+
+```text
+Teleproto emits token + expiry
+  → TelegramDrive creates tg://login?token=<base64url token>
+  → AuthScreen renders that URI with qrcode
+  → user scans in Telegram Settings → Devices
+  → Teleproto waits for acceptance
+  → optional password callback requests Telegram 2FA password
+  → authenticated StringSession is serialized
+```
+
+The QR token is displayed as a data-URL image and is not stored. Closing or switching away from the QR flow aborts token polling. Token and timeout errors are allowed to retry so Teleproto can rotate an expired QR code.
+
+The `expires` value returned by Teleproto is treated as a Unix timestamp in seconds for the UI countdown.
+
+## Phone authentication
+
+Phone login uses `signInUser()` callbacks:
+
+- `phoneNumber` returns the normalized international number;
+- `phoneCode` pauses the library call until the user submits the code;
+- `password` pauses for Telegram two-step verification if required;
+- `firstAndLastNames` rejects registration because account creation belongs in the official Telegram client.
+
+The phone number, login code, and password stay in React memory for the active flow. They are not written to IndexedDB.
+
+## Session restoration
+
+After successful authentication, `client.session.save()` produces a `StringSession`. When persistence is enabled, it is stored with the API credentials in IndexedDB.
+
+On startup:
+
+1. load the saved connection record;
+2. construct `StringSession(saved.session)`;
+3. connect the client;
+4. call `checkAuthorization()`;
+5. continue to channel restoration only if authorized.
+
+If restoration fails, the app disconnects and returns to credential entry with a sanitized error.
+
+## Eligible storage channels
+
+`listPrivateChannels()` omits Teleproto's dialog limit so the library paginates through the complete account dialog list, including archived folders. It accepts only entries where:
+
+```text
+dialog.isChannel is true
+entity.broadcast is true
+entity.username is absent
+entity.left is not true
+```
+
+This includes private and public broadcast channels and excludes supergroups, ordinary groups, and channels the user has left. Public channels are visibly labeled and require confirmation because uploaded files may be visible to subscribers. Fetching every dialog may take longer on accounts with hundreds of conversations, but avoids silently hiding older or archived channels. Refreshing from the chooser updates the list in place instead of navigating back to the selected drive.
+
+Only the channel ID is persisted. The current `inputEntity` is retained in memory because it contains session-specific Telegram addressing information.
+
+The channel screen can also call `createPrivateChannel()`. It uses Teleproto's native `createChannel()` method without `megagroup`, producing a private broadcast channel with the user-supplied title. The returned channel is converted to a `CloudChannel`, selected immediately, and persisted. Channel-limit and empty-title errors receive user-friendly messages.
+
+## Message mapping
+
+`toCloudItem()` ignores messages without a photo or document. Classification order is:
+
+1. Telegram photo or an `image/*` MIME type → `image`;
+2. Telegram video or a `video/*` MIME type → `video`;
+3. Telegram audio or an `audio/*` MIME type → `audio`;
+4. everything else with a document → `file`.
+
+When Telegram does not provide a filename, the UI creates one from the kind and message ID. File sizes and dates may arrive as JavaScript numbers or Teleproto big-integer values, so `asNumber()` normalizes them.
+
+## Pagination
+
+History pages use `getMessages()` with a default limit of 40. The lowest raw message ID becomes the next `offsetId`. `hasMore` remains true only when Telegram returns a full raw page.
+
+The offset must be based on all returned messages, not only mapped media items. Otherwise pages containing text/service messages could cause duplicates or skipped history.
+
+An `IntersectionObserver` in `DriveScreen` requests the next page when the bottom sentinel is within 300 pixels of the viewport.
+
+## Thumbnails
+
+Images and videos request thumbnail index `0`. The cache key is:
+
+```text
+<channel ID>:<message ID>
+```
+
+This prevents collisions between different channels whose message IDs happen to match. Thumbnail failures are non-fatal; the card falls back to a type icon.
+
+## Uploads
+
+Files are sent directly with `client.sendFile()`:
+
+- a fresh browser `File` clone is passed without base64 conversion;
+- browser files are sliced into bounded upload parts instead of first being copied into one whole-file `Buffer`;
+- the original size is supplied;
+- browser MIME and explicit filename/video/audio attributes are retained;
+- only MP4/M4V is marked as streamable, avoiding Telegram content-type errors for containers such as MKV or AVI;
+- images are sent as documents so Telegram retains their original bytes and filename instead of recompressing them as chat photos;
+- `workers: 1` keeps each file's upload conservative;
+- the UI processes multiple selected files sequentially.
+
+Cancellation sets Teleproto's callback-specific `isCanceled` property when the `AbortSignal` fires. Test cancellation after every Teleproto upgrade because this convention is library-specific.
+
+Teleproto 1.228's runtime currently checks generic objects before checking native browser `File` instances, despite declaring `File` support. The upload wrapper adds a non-enumerable `read` marker to a fresh `File` clone so it reaches Teleproto's intended browser upload branch. Remove this workaround once upstream fixes the branch ordering. Do not pass the original picker object without the marker; it fails with `Cannot use [object File] as file`.
+
+Teleproto 1.228's custom `File.duration`, `width`, and `height` getters also pass an array directly as the right-hand side of `instanceof`. Reading video duration after a completed upload therefore used to throw `Right-hand side of 'instanceof' is not callable`. The app reads the concrete video/audio attribute instead, and the build transform corrects the dependency getter for any future call site.
+
+### Format support
+
+| Category | Storage and download | In-app preview |
+| --- | --- | --- |
+| Images | All image files are retained as original Telegram documents | Formats decoded by the browser, commonly JPEG, PNG, GIF, WebP, SVG, and AVIF; HEIC/TIFF support varies |
+| Videos | All containers can be uploaded and downloaded; common extensions and `video/*` MIME types are categorized as video | Depends on browser container and codec support; MP4/H.264 and WebM are the most portable |
+| Audio | All audio files can be uploaded and downloaded; common extensions and `audio/*` MIME types are categorized as audio | Depends on browser codec support |
+| Documents, archives, and other files | All binary file types are uploaded and downloaded without an `accept` filter | Generic documents deliberately use download rather than an embedded renderer |
+
+An unsupported preview never means an unsupported stored file. The viewer reports the codec limitation and offers **Download original**. Telegram-controlled per-file and account limits still apply.
+
+## Downloads and previews
+
+Normal downloads use Teleproto's native in-memory result and a temporary download anchor, which hands the completed file to Chrome's standard download manager. Files above 750 MB use `showSaveFilePicker` when available and pass a custom ordered writer to `downloadMedia()`, writing Telegram chunks directly to disk without retaining the full video in memory. Browsers without a writable file handle warn before using the large in-memory fallback.
+
+Image/video/audio previews still create complete in-memory Blobs and temporary object URLs. The 750 MB preview ceiling therefore remains. While the viewer is open, `ArrowLeft` and `ArrowRight` move through the current filtered gallery, visible buttons provide the same navigation, and `Escape` closes the viewer.
+
+Teleproto 1.228 also assumes Node's `fs.WriteStream` constructor exists while closing every download writer. The browser `fs` polyfill intentionally does not provide that constructor, so the unguarded `instanceof` check otherwise throws `Right-hand side of 'instanceof' is not an object` for thumbnails, previews, and downloads. `vite.config.ts` applies a narrow source transform that first verifies `WriteStream` is a constructor. The transform is registered both in Vite's development dependency optimizer and in the normal build pipeline; it does not modify `node_modules` and it does not relax the production CSP.
+
+Current safety guardrails:
+
+- previews above 750 MB are disabled;
+- files above 750 MB use direct-to-disk saving when supported, otherwise require confirmation;
+- `AbortSignal` is used when closing a preview;
+- object URLs are revoked during cleanup.
+
+Direct-to-disk downloads are streamed and memory-bounded where the browser exposes the native save-file API. Preview and fallback download remain Blob-based because Safari, Firefox, and some mobile browsers do not expose an equivalent writable file handle.
+
+## Browser compatibility transforms
+
+Teleproto's shared Node/browser code contains several Node assumptions in version 1.228. `vite.config.ts` narrowly corrects timer `.unref()`, download `fs.WriteStream` checks, browser-file chunk reads, browser MIME propagation, and multi-class file-attribute lookups. The corrections run in Vite's development optimizer and production pipeline, do not edit `node_modules`, and replace the former global `Number.prototype` timer shim.
+
+Every correction checks the exact expected source count. A changed dependency implementation therefore fails the build with an upgrade message instead of silently applying a partial patch. Recheck and preferably remove individual transforms as upstream becomes browser-safe.
+
+History reads and media-part requests use explicit timeouts. This prevents the interface from displaying a permanent loading state when a Telegram request stops making progress. The gallery also holds an in-flight pagination lock and rejects non-advancing offsets to prevent repeated loading of the same page.
+
+## Delete semantics
+
+Deletion calls `deleteMessages(channel, [messageId], { revoke: true })`. This permanently removes the underlying Telegram channel message, then removes its cached thumbnail.
+
+There is no application trash or undo. Any future soft-delete feature needs Telegram-backed metadata or a second archive channel; a local-only flag would not synchronize across devices.
+
+## Error handling
+
+Raw Telegram errors are mapped by `friendlyError()` in `App.tsx`. Known credential, phone, code, password, flood-wait, cancellation, and network cases receive user-safe text. Avoid printing raw auth errors to the console because library errors can include sensitive request context.
+
+When adding a Telegram operation, handle at least:
+
+- authorization expiry;
+- network disconnect/reconnect;
+- `FLOOD_WAIT`;
+- missing channel permission;
+- deleted/unavailable media;
+- cancellation;
+- values represented as big integers.
