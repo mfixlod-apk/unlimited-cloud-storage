@@ -166,16 +166,51 @@ const uploadRecordResumeKey = (record: UploadQueueRecord) => [record.sourceName 
 
 const normalizedUploadName = (name: string) => name.normalize("NFKC").trim().toLocaleLowerCase();
 const isHeicItem = (item: Pick<CloudItem, "name" | "mime">) => /image\/(?:hei[cf]|heic-sequence|heif-sequence)/i.test(item.mime) || /\.hei[cf]$/i.test(item.name);
+const EXIF_DATE_EXTENSIONS = new Set(["avif", "heic", "heif", "jpeg", "jpg", "png", "tif", "tiff"]);
+let exifrModule: Promise<typeof import("exifr")> | undefined;
 
 const decodeHeicPreview = async (blob: Blob) => {
   const { heicTo } = await import("heic-to/csp");
   return heicTo({ blob, type: "image/jpeg", quality: .9 });
 };
 
-const datePrefixedName = (file: File) => {
+const validMediaDate = (value: unknown) => {
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value;
+  if (typeof value !== "string") return undefined;
+  const parts = value.match(/^((?:19|20)\d{2})[:-](0[1-9]|1[0-2])[:-](0[1-9]|[12]\d|3[01])[ T](\d{2}):(\d{2}):(\d{2})/);
+  if (!parts) return undefined;
+  const date = new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]), Number(parts[4]), Number(parts[5]), Number(parts[6]));
+  return Number.isFinite(date.getTime()) ? date : undefined;
+};
+
+const supportsEmbeddedMediaDate = (file: File) => {
+  const extension = file.name.toLocaleLowerCase().match(/\.([^.]+)$/)?.[1] || "";
+  return EXIF_DATE_EXTENSIONS.has(extension) || /image\/(?:avif|hei[cf]|jpeg|png|tiff?)/i.test(file.type);
+};
+
+const embeddedMediaDate = async (file: File) => {
+  if (!supportsEmbeddedMediaDate(file)) return undefined;
+  try {
+    exifrModule ||= import("exifr");
+    const exifr = await exifrModule;
+    const metadata = await exifr.parse(file, ["DateTimeOriginal", "CreateDate", "DateTimeDigitized"]);
+    return validMediaDate(metadata?.DateTimeOriginal)
+      || validMediaDate(metadata?.CreateDate)
+      || validMediaDate(metadata?.DateTimeDigitized);
+  } catch {
+    // Some edited/exported images contain no readable capture metadata.
+    return undefined;
+  }
+};
+
+const datePrefixedName = async (file: File) => {
   if (/^\d{4}-\d{2}-\d{2}__/.test(file.name)) return file.name;
-  const date = new Date(file.lastModified);
-  if (!Number.isFinite(date.getTime()) || file.lastModified <= 0) return file.name;
+  const date = await embeddedMediaDate(file)
+    || dateFromFileName(file.name)
+    // For a supported photo, no date is safer than stamping an entire export
+    // batch with the picker's shared "today" modification time.
+    || (!supportsEmbeddedMediaDate(file) && file.lastModified > 0 ? new Date(file.lastModified) : undefined);
+  if (!date || !Number.isFinite(date.getTime())) return file.name;
   const prefix = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
   return `${prefix}__${file.name}`;
 };
@@ -1237,7 +1272,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
         // write against that upload.
         continue;
       }
-      const plannedName = existing?.name || safeFileName(datePrefixUploads ? datePrefixedName(file) : file.name, "unnamed");
+      const plannedName = safeFileName(datePrefixUploads ? await datePrefixedName(file) : existing?.name || file.name, "unnamed");
       if (preventDuplicateNames && !existing && knownUploadNames.has(normalizedUploadName(plannedName))) {
         duplicatesSkipped += 1;
         continue;
@@ -1245,7 +1280,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
       const record: UploadQueueRecord = existing ? {
         ...existing,
         sourceName: file.name,
-        name: existing.name,
+        name: plannedName,
         type: file.type,
         size: file.size,
         lastModified: file.lastModified,
@@ -1505,10 +1540,50 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
     }
   };
 
+  const forgetDeletedUploadRecords = async (names: string[]) => {
+    const deletedNames = new Set(names.map(normalizedUploadName));
+    const records = Array.from(uploadRecords.current.values()).filter((record) => record.status === "done" && deletedNames.has(normalizedUploadName(record.name)));
+    if (!records.length) return;
+    const ids = new Set(records.map((record) => record.id));
+    const affectedBatchIds = new Set(records.map((record) => record.batchId));
+    await localStore.deleteUploadRecords([...ids]);
+    for (const record of records) {
+      uploadRecords.current.delete(record.id);
+      uploadFiles.current.delete(record.id);
+      if (uploadVisibleIds.current.delete(record.id)) {
+        uploadStats.current.total = Math.max(0, uploadStats.current.total - 1);
+        uploadStats.current.done = Math.max(0, uploadStats.current.done - 1);
+      }
+    }
+    uploadStats.current.recent = uploadStats.current.recent.filter((entry) => !ids.has(entry.id));
+    for (const batchId of affectedBatchIds) {
+      const batch = uploadBatches.current.get(batchId);
+      if (!batch || batch.checkpointSent) continue;
+      const remaining = Array.from(uploadRecords.current.values()).filter((record) => record.batchId === batchId);
+      if (!remaining.length) {
+        uploadBatches.current.delete(batchId);
+        await localStore.deleteUploadBatch(batchId);
+        continue;
+      }
+      const dates = remaining.map((record) => record.lastModified).filter((value) => value > 0);
+      const updated = {
+        ...batch,
+        fileCount: remaining.length,
+        totalBytes: remaining.reduce((total, record) => total + record.size, 0),
+        sourceOldest: dates.length ? Math.min(...dates) : undefined,
+        sourceNewest: dates.length ? Math.max(...dates) : undefined,
+      };
+      uploadBatches.current.set(batchId, updated);
+      await localStore.saveUploadBatch(updated);
+    }
+    publishUploadSnapshot(true);
+  };
+
   const deleteItem = async (item: CloudItem) => {
     if (!window.confirm(`Permanently delete “${item.name}” from Telegram? This cannot be undone.`)) return;
     try {
       await telegramDrive.delete(channel, item);
+      await forgetDeletedUploadRecords([item.name]).catch(() => undefined);
       setItems((current) => current.filter((entry) => entry.id !== item.id));
       setCheckedIds((current) => {
         const next = new Set(current);
@@ -1607,6 +1682,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
     setError("");
     try {
       await telegramDrive.deleteMany(channel, targets);
+      await forgetDeletedUploadRecords(targets.map((item) => item.name)).catch(() => undefined);
       const deletedIds = new Set(targets.map((item) => item.id));
       setItems((current) => current.filter((item) => !deletedIds.has(item.id)));
       setCheckedIds(new Set());
@@ -2073,7 +2149,7 @@ function SettingsPanel({ account, theme, memoryLimitMb, effectiveMemoryMb, preve
       <header><div><span className="eyebrow">Preferences</span><h2>Settings</h2></div><button onClick={onClose}><CloseIcon /></button></header>
       <section><h3>Account</h3><div className="settings-row"><span className="avatar">{userName(account).slice(0, 1).toUpperCase()}</span><div><strong>{userName(account)}</strong><small>Telegram account</small></div></div></section>
       <section><h3>Appearance</h3><label className="settings-toggle"><span><strong>Dark mode</strong><small>Use the darker interface on this browser.</small></span><input type="checkbox" checked={theme === "dark"} onChange={(event) => void onTheme(event.target.checked ? "dark" : "light")} /></label></section>
-      <section><h3>Uploads</h3><label className="settings-toggle"><span><strong>Prevent duplicate filenames</strong><small>Skip a file when the same name is already discovered in this channel or its local sync queue. Unloaded older history may not be checked.</small></span><input type="checkbox" checked={preventDuplicateNames} onChange={(event) => void onPreventDuplicateNames(event.target.checked)} /></label><label className="settings-toggle"><span><strong>Prefix names with media date</strong><small>Upload as YYYY-MM-DD__filename using the date supplied by the device picker. Existing Telegram files are unchanged.</small></span><input type="checkbox" checked={datePrefixUploads} onChange={(event) => void onDatePrefixUploads(event.target.checked)} /></label></section>
+      <section><h3>Uploads</h3><label className="settings-toggle"><span><strong>Prevent duplicate filenames</strong><small>Skip a file when the same name is already discovered in this channel or its local sync queue. Unloaded older history may not be checked.</small></span><input type="checkbox" checked={preventDuplicateNames} onChange={(event) => void onPreventDuplicateNames(event.target.checked)} /></label><label className="settings-toggle"><span><strong>Prefix names with media date</strong><small>Use a photo's embedded capture date, then a date in its filename. Photos without either keep their original name instead of guessing from the export date.</small></span><input type="checkbox" checked={datePrefixUploads} onChange={(event) => void onDatePrefixUploads(event.target.checked)} /></label></section>
       <section><h3>Performance</h3><label className="memory-setting"><span><strong>Memory limit</strong><small>Controls off-screen gallery preloading and full-file preview fallback.</small></span><select value={memoryLimitMb} onChange={(event) => void onMemoryLimit(Number(event.target.value))}><option value={256}>256 MB</option><option value={512}>512 MB</option><option value={1024}>1 GB (default)</option><option value={2048}>2 GB</option></select><em>{effectiveMemoryMb < memoryLimitMb ? `Adjusted to ${formatSize(effectiveMemoryMb * 1024 * 1024)} for this device.` : "The browser may use less when content is off screen."}</em></label></section>
       <section><h3>Privacy & device</h3><div className="security-box"><ShieldIcon /><p><strong>Browser-only connection</strong>Credentials and session data stay in IndexedDB on this browser profile. Files are not end-to-end encrypted by this app.</p></div><button className="settings-action" onClick={clearCache}><RefreshIcon /><span><strong>{cleared ? "Thumbnail cache cleared" : "Clear thumbnail cache"}</strong><small>Original files remain in Telegram</small></span>{cleared && <CheckIcon />}</button><button className="settings-action" onClick={() => void onForget()}><CloseIcon /><span><strong>Forget this browser</strong><small>Remove local credentials, session, and cache only</small></span></button></section>
       <section className="danger-zone"><button onClick={() => void onLogOut()}><TrashIcon />Log out of Telegram</button><small>This revokes this app's Telegram session and clears local data.</small></section>

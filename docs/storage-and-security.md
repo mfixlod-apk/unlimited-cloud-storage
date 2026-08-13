@@ -18,7 +18,7 @@ The app does not provide end-to-end or zero-knowledge encryption. Telegram recei
 | `channelId` | `string` | Rediscover and restore the selected broadcast channel |
 | `memoryLimitMb` | `number` | User-selected gallery/preview memory budget; defaults to 1024 MB |
 | `preventDuplicateNames` | `boolean` | Skip newly selected uploads whose normalized outgoing filename is already known in the selected channel/local queue; defaults to false |
-| `datePrefixUploads` | `boolean` | Prefix new outgoing filenames with `YYYY-MM-DD__` using the picker-provided file date; defaults to false |
+| `datePrefixUploads` | `boolean` | Prefix new outgoing filenames with `YYYY-MM-DD__` from embedded image capture metadata or a recognizable filename date; supported photos without either remain unprefixed; defaults to false |
 | `theme` | `"light"` or `"dark"` | Browser appearance preference; defaults to the operating-system preference until explicitly selected |
 
 ### `thumbnails`
@@ -122,6 +122,8 @@ During `npm run dev`, the `development-csp` transform in `vite.config.ts` adds `
 Teleproto expects Node-compatible crypto and binary APIs. Vite's Node polyfill plugin supplies them for the browser. Production builds may report a warning about `vm-browserify` containing an `eval` fallback. The CSP does not allow `unsafe-eval`; the relevant dependency catches that failure and uses its non-eval fallback. Re-test the complete login handshake whenever Teleproto or the polyfill stack changes.
 
 HEIC/HEIF preview fallback uses `heic-to` 1.5.2 (LGPL-3.0-or-later), which bundles libheif 1.22.2. It is dynamically loaded only after native image decoding fails, uses the package's no-`unsafe-eval` CSP build, and processes the downloaded Blob locally. It does not add a network origin or weaken `script-src`. Treat every media decoder as an untrusted-file parser: keep it current, retain the preview-size ceiling, and do not persist converted JPEGs. Source and license: <https://github.com/hoppergee/heic-to>.
+
+Capture-date naming uses `exifr` 7.1.3 (MIT) and lazy-loads it only when the setting is enabled for a supported image. The result filter includes only `DateTimeOriginal`, `CreateDate`, and `DateTimeDigitized`; modification and GPS values are not returned or used. It does not retain the parsed object, alter the original bytes, or send metadata over the network. Source and license: <https://github.com/MikeKovarik/exifr>.
 
 `vite.config.ts` also applies narrowly checked browser corrections to known Teleproto 1.228 Node assumptions. They run during development dependency optimization and production builds, and fail the build if an upgrade changes the expected source. This avoids editing `node_modules` or installing global prototype shims.
 

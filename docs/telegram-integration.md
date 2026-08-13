@@ -139,10 +139,10 @@ Foreground sync has no application-level selection-count cap. It persists only l
 
 Two default-off naming controls are applied only when a new queue entry is created:
 
-- date prefixing sends `YYYY-MM-DD__original-name` using `File.lastModified`, the date made available by the system picker;
+- date prefixing sends `YYYY-MM-DD__original-name`, preferring embedded `DateTimeOriginal`, `CreateDate`, or `DateTimeDigitized` from supported images and then a recognizable date in the original filename. A supported photo with neither remains unprefixed instead of inheriting a misleading picker/export timestamp; unsupported file categories retain the `File.lastModified` fallback;
 - duplicate-name prevention normalizes outgoing names with Unicode NFKC, trims them, and compares case-insensitively against discovered channel items and every local queue record for that channel.
 
-The duplicate check is intentionally best-effort. It catches duplicates in the current selection, the persistent local queue, and history already loaded by the gallery. It does not pull the entire channel before an upload because that would make syncing a very large channel slow and flood-wait prone. It compares names rather than content hashes, so same bytes under different names are allowed and different bytes under the same name are skipped. Neither setting renames an existing Telegram message or the source file.
+The duplicate check is intentionally best-effort. It catches duplicates in the current selection, the persistent local queue, and history already loaded by the gallery. It does not pull the entire channel before an upload because that would make syncing a very large channel slow and flood-wait prone. It compares names rather than content hashes, so same bytes under different names are allowed and different bytes under the same name are skipped. Date parsing reads only the selected local file's date tags and deliberately ignores location data. Neither setting renames an existing Telegram message or the source file.
 
 When every member of a new batch is `done`, `writeSyncCheckpoint()` sends a text message beginning with `UCS_SYNC_V1`. `toCloudItem()` already ignores text-only messages, so checkpoints never appear in the gallery. The JSON contains aggregate non-secret audit data only. It is not a full content manifest and must never contain credentials, session strings, absolute paths, EXIF location, or original bytes.
 
@@ -195,7 +195,7 @@ History reads and media-part requests use explicit timeouts. This prevents the i
 
 ## Delete semantics
 
-Single deletion calls `deleteMessages(channel, [messageId], { revoke: true })`. Batch deletion sends at most 100 message IDs per Telegram request. Both permanently remove the underlying Telegram channel messages, then remove their cached thumbnails, and the UI confirms before making the request. Whole-channel deletion is a separate owner-only API operation and its stronger confirmation explicitly says that every file will be removed.
+Single deletion calls `deleteMessages(channel, [messageId], { revoke: true })`. Batch deletion sends at most 100 message IDs per Telegram request. Both permanently remove the underlying Telegram channel messages, then remove their cached thumbnails, and the UI confirms before making the request. A successful UI deletion also clears matching completed local queue records so intentionally deleted source files can be selected again; completed Telegram checkpoint messages remain historical summaries. Whole-channel deletion is a separate owner-only API operation and its stronger confirmation explicitly says that every file will be removed.
 
 There is no application trash or undo. Any future soft-delete feature needs Telegram-backed metadata or a second archive channel; a local-only flag would not synchronize across devices.
 

@@ -5,15 +5,18 @@
 <script>window.__heicWait = setInterval(() => {}, 100);</script>
 <script type="module">
   import { heicTo } from "../node_modules/heic-to/dist/csp/heic-to.js";
+  import { parse } from "../node_modules/exifr/dist/full.esm.mjs";
 
   const result = document.querySelector("#result");
   try {
     const fixture = new URL(location.href).searchParams.get("fixture");
     if (!fixture) throw new Error("Pass ?fixture=file:///absolute/path/to/image.heic");
     const source = await fetch(fixture).then((response) => response.blob());
+    const metadata = await parse(source, ["DateTimeOriginal", "CreateDate", "DateTimeDigitized"]);
     const jpeg = await heicTo({ blob: source, type: "image/jpeg", quality: .9 });
     const bitmap = await createImageBitmap(jpeg);
-    result.textContent = `PASS ${jpeg.type} ${bitmap.width}x${bitmap.height}`;
+    const captured = metadata?.DateTimeOriginal || metadata?.CreateDate || metadata?.DateTimeDigitized;
+    result.textContent = `PASS ${jpeg.type} ${bitmap.width}x${bitmap.height} ${captured instanceof Date ? captured.toISOString() : "no-date"}`;
     bitmap.close();
   } catch (error) {
     result.textContent = `FAIL ${error instanceof Error ? error.message : String(error)}`;

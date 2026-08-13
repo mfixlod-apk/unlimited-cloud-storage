@@ -122,7 +122,7 @@ The option is off by default so a successful login does not create a persistent 
 
 **Why:** These controls improve chronological search and avoid common accidental re-uploads without hashing or loading every original and without forcing a full Telegram history scan. Exact location in a filename would permanently disclose sensitive metadata to Telegram and every channel reader, while reverse geocoding would add a third-party network/privacy dependency.
 
-**Consequences:** Duplicate prevention is deliberately best-effort, not content deduplication. Picker dates can differ from original EXIF/QuickTime capture dates after export or editing. Rich metadata tagging needs a separately designed Telegram-backed index, explicit privacy controls, and migration behavior.
+**Consequences:** Duplicate prevention is deliberately best-effort, not content deduplication. Supported image uploads read only local capture-date fields and fall back to filename dates; photos with stripped metadata remain unprefixed instead of receiving a potentially false export date. Unsupported media can still use the picker timestamp. Rich metadata tagging needs a separately designed Telegram-backed index, explicit privacy controls, and migration behavior.
 
 ## 16. Bulk actions operate on loaded visible items
 
