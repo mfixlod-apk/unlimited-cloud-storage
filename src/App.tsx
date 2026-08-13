@@ -748,6 +748,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
   const uploadMounted = useRef(true);
   const uploadLastPaint = useRef(0);
   const uploadRestore = useRef<Promise<void>>(Promise.resolve());
+  const uploadEnqueue = useRef<Promise<void>>(Promise.resolve());
   const downloadAbort = useRef<AbortController | undefined>(undefined);
   const bulkCancelRequested = useRef(false);
   const sentinel = useRef<HTMLDivElement>(null);
@@ -1042,11 +1043,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channel.id]);
 
-  const handleFiles = async (list: FileList | File[]) => {
-    const files = Array.from(list);
-    setShowSyncChooser(false);
-    if (!files.length) return;
-    setShowUploadPanel(true);
+  const appendFilesToUploadQueue = async (files: File[]) => {
     await uploadRestore.current;
 
     // Merge persisted state first in case the picker was opened immediately
@@ -1163,10 +1160,28 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
     else await localStore.saveUploadRecords(changed);
     uploadStats.current.skipped += skipped;
     uploadStats.current.duplicatesSkipped += duplicatesSkipped;
-    uploadPaused.current = false;
-    uploadStats.current.paused = false;
     publishUploadSnapshot(true);
-    void processUploadQueue();
+    if (!uploadPaused.current) void processUploadQueue();
+  };
+
+  const handleFiles = (list: FileList | File[]) => {
+    // Copy the picker result immediately. Some mobile browsers clear their
+    // live FileList as soon as the input is reset or another picker opens.
+    const files = Array.from(list);
+    setShowSyncChooser(false);
+    if (!files.length) return Promise.resolve();
+    setShowUploadPanel(true);
+
+    // Native pickers are normally modal, but their change handlers can still
+    // overlap with IndexedDB work from the previous selection. Serialize only
+    // queue bookkeeping; the upload worker continues independently and newly
+    // appended IDs remain FIFO behind anything already waiting.
+    uploadEnqueue.current = uploadEnqueue.current
+      .then(() => appendFilesToUploadQueue(files))
+      .catch((cause) => {
+        setError(`Could not add files to the upload queue: ${friendlyError(cause)}`);
+      });
+    return uploadEnqueue.current;
   };
 
   const pauseUploads = () => {
@@ -1242,12 +1257,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
     setShowUploadPanel(false);
   };
 
-  const openSync = async () => {
-    if (uploadSnapshot.pending > 0 || uploadSnapshot.failed > 0) {
-      setShowUploadPanel(true);
-      return;
-    }
-    if (uploadSnapshot.needsFile > 0) await dismissUnfinishedUploads();
+  const openSync = () => {
     setShowSyncChooser(true);
   };
 
@@ -1438,7 +1448,7 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
   const selectedIndex = selected ? visibleItems.findIndex((item) => item.id === selected.id) : -1;
   const previousItem = selectedIndex > 0 ? visibleItems[selectedIndex - 1] : undefined;
   const nextItem = selectedIndex >= 0 && selectedIndex < visibleItems.length - 1 ? visibleItems[selectedIndex + 1] : undefined;
-  const syncActive = uploadSnapshot.pending > 0 && !uploadSnapshot.paused;
+  const queueHasWork = uploadSnapshot.pending > 0;
   const directoryPickerSupported = "webkitdirectory" in document.createElement("input");
 
   return (
@@ -1451,14 +1461,14 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
       </aside>
       <main className="drive-main">
         <header className="mobile-drive-nav">
-          <div className="mobile-app-bar"><button className="mobile-wordmark" onClick={onHome} aria-label="Go to home page"><CloudIcon />Unlimited Cloud Storage</button><div className="mobile-app-actions"><button className="primary-button mobile-upload" onClick={() => void openSync()} aria-label="Sync files now"><UploadIcon /><span>{syncActive ? "Syncing" : "Sync now"}</span></button><button className="mobile-settings" onClick={() => setSettings(true)} aria-label="Open settings"><SettingsIcon /></button></div></div>
+          <div className="mobile-app-bar"><button className="mobile-wordmark" onClick={onHome} aria-label="Go to home page"><CloudIcon />Unlimited Cloud Storage</button><div className="mobile-app-actions"><button className="primary-button mobile-upload" onClick={openSync} aria-label={queueHasWork ? "Add more files to the upload queue" : "Sync files now"}><UploadIcon /><span>{queueHasWork ? "Add files" : "Sync now"}</span></button><button className="mobile-settings" onClick={() => setSettings(true)} aria-label="Open settings"><SettingsIcon /></button></div></div>
           <div className="mobile-title-row"><div className="mobile-title-copy"><h1>{tabs.find((tab) => tab.value === filter)?.label}</h1><p>{visibleItems.length}{hasMore ? "+" : ""} {visibleItems.length === 1 ? "item" : "items"}</p></div><div className="mobile-channel-control"><ChannelSwitcher channel={channel} channels={channels} showPublic={showPublicChannels} onShowPublic={onShowPublicChannels} onSelect={onSelectChannel} onCreate={onCreateChannel} onManage={onChangeChannel} /></div></div>
           <label className="search-box mobile-search"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label>
           <div className="mobile-tools"><button className={groupByMonth ? "active" : ""} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth}><CalendarIcon />{groupByMonth ? "Grouped" : "By month"}</button><button onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon />{sortOrder === "newest" ? "Newest" : "Oldest"}</button><button className={selectionMode ? "active" : ""} onClick={toggleSelectionMode} aria-pressed={selectionMode}><CheckIcon />{selectionMode ? "Cancel" : "Select"}</button></div>
         </header>
         <header className="drive-header desktop-drive-header">
           <div><h1>{tabs.find((tab) => tab.value === filter)?.label}</h1><p>{channel.title} <span>·</span> {visibleItems.length} {visibleItems.length === 1 ? "item" : "items"}</p></div>
-          <div className="header-actions"><button className={`secondary-button month-toggle ${groupByMonth ? "active" : ""}`} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth} aria-label="Group files by month" title="Group files by month"><CalendarIcon /><span>{groupByMonth ? "Grouped" : "Group by month"}</span></button><button className="secondary-button sort-toggle" aria-label={`Order: ${sortOrder === "newest" ? "newest first" : "oldest first"}`} title={sortOrder === "newest" ? "Newest first" : "Oldest first"} onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon /><span>{sortOrder === "newest" ? "Newest first" : "Oldest first"}</span></button><button className={`secondary-button select-toggle ${selectionMode ? "active" : ""}`} onClick={toggleSelectionMode} aria-pressed={selectionMode}><CheckIcon /><span>{selectionMode ? "Cancel" : "Select"}</span></button><label className="search-box"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label><button className="primary-button" onClick={() => void openSync()}><UploadIcon />{syncActive ? `Syncing ${uploadSnapshot.done}/${uploadSnapshot.total}` : "Sync now"}</button></div>
+          <div className="header-actions"><button className={`secondary-button month-toggle ${groupByMonth ? "active" : ""}`} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth} aria-label="Group files by month" title="Group files by month"><CalendarIcon /><span>{groupByMonth ? "Grouped" : "Group by month"}</span></button><button className="secondary-button sort-toggle" aria-label={`Order: ${sortOrder === "newest" ? "newest first" : "oldest first"}`} title={sortOrder === "newest" ? "Newest first" : "Oldest first"} onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon /><span>{sortOrder === "newest" ? "Newest first" : "Oldest first"}</span></button><button className={`secondary-button select-toggle ${selectionMode ? "active" : ""}`} onClick={toggleSelectionMode} aria-pressed={selectionMode}><CheckIcon /><span>{selectionMode ? "Cancel" : "Select"}</span></button><label className="search-box"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label><button className="primary-button" onClick={openSync} aria-label={queueHasWork ? "Add more files to the upload queue" : "Sync files now"}><UploadIcon />{queueHasWork ? "Add files" : "Sync now"}</button></div>
         </header>
         <div className="mobile-tabs">{tabs.map(({ value, label }) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div>
         <input ref={mediaInput} type="file" accept="image/*,video/*" multiple hidden onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void handleFiles(event.target.files); event.target.value = ""; }} />
@@ -1467,11 +1477,11 @@ function DriveScreen({ account, channel, channels, showPublicChannels, theme, on
         {error && <div className="error-banner drive-error" role="alert"><span>{error}</span><button onClick={() => setError("")}><CloseIcon /></button></div>}
         {loading ? <GallerySkeleton /> : visibleItems.length ? (
           <MemoryGallery items={visibleItems} channel={channel} groupByMonth={groupByMonth} memoryLimitMb={effectiveMemoryMb} hasMore={hasMore} paused={Boolean(selected)} selectionMode={selectionMode} selectedIds={checkedIds} onOpen={setSelected} onToggleSelection={toggleChecked} onDownload={downloadItem} onDelete={deleteItem} />
-        ) : <EmptyState hasItems={items.length > 0} onUpload={() => setShowSyncChooser(true)} />}
+        ) : <EmptyState hasItems={items.length > 0} onUpload={openSync} />}
         <div ref={sentinel} className="scroll-sentinel">{loadingMore && <><span className="spinner" />{search.trim() ? "Searching older files…" : "Loading older files…"}</>}{!hasMore && items.length > 0 && <span>You've reached the beginning.</span>}</div>
       </main>
       {dragging && <div className="drop-overlay" onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={onDrop}><div><UploadIcon /><h2>Drop to upload</h2><p>Files go directly to {channel.title}</p></div></div>}
-      {showSyncChooser && <SyncChooser supportsDirectory={directoryPickerSupported} onPhotos={() => mediaInput.current?.click()} onFiles={() => fileInput.current?.click()} onDirectory={() => directoryInput.current?.click()} onClose={() => setShowSyncChooser(false)} />}
+      {showSyncChooser && <SyncChooser supportsDirectory={directoryPickerSupported} pendingCount={uploadSnapshot.pending} totalCount={uploadSnapshot.total} onPhotos={() => mediaInput.current?.click()} onFiles={() => fileInput.current?.click()} onDirectory={() => directoryInput.current?.click()} onClose={() => setShowSyncChooser(false)} />}
       {showUploadPanel && (uploadSnapshot.total > 0 || uploadSnapshot.skipped > 0 || uploadSnapshot.duplicatesSkipped > 0) && <UploadPanel snapshot={uploadSnapshot} onPause={pauseUploads} onResume={() => void resumeUploads()} onSelectMore={() => setShowSyncChooser(true)} onDiscardUnfinished={() => void dismissUnfinishedUploads()} onDismiss={() => setShowUploadPanel(false)} />}
       {selectionMode && <BulkActionBar count={checkedItems.length} allVisibleSelected={allVisibleChecked} busy={bulkBusy} onToggleAll={toggleAllVisible} onDownload={() => void downloadSelected()} onDelete={() => void deleteSelected()} onCancel={() => { setSelectionMode(false); setCheckedIds(new Set()); }} />}
       {downloadEntry && <DownloadPanel entry={downloadEntry} onCancel={() => { bulkCancelRequested.current = bulkBusy; downloadAbort.current?.abort(); }} />}
@@ -1653,14 +1663,17 @@ function EmptyState({ hasItems, onUpload }: { hasItems: boolean; onUpload: () =>
   return <div className="empty-state">{hasItems ? <SearchIcon /> : <CloudIcon />}<h2>{hasItems ? "No matches found" : "Your cloud is ready"}</h2><p>{hasItems ? "Try a different search or file type." : "Sync your first files. They will appear here and in your private Telegram channel."}</p>{!hasItems && <button className="primary-button" onClick={onUpload}><UploadIcon />Sync now</button>}</div>;
 }
 
-function SyncChooser({ supportsDirectory, onPhotos, onFiles, onDirectory, onClose }: {
+function SyncChooser({ supportsDirectory, pendingCount, totalCount, onPhotos, onFiles, onDirectory, onClose }: {
   supportsDirectory: boolean;
+  pendingCount: number;
+  totalCount: number;
   onPhotos: () => void;
   onFiles: () => void;
   onDirectory: () => void;
   onClose: () => void;
 }) {
-  return <div className="modal-backdrop sync-backdrop" role="dialog" aria-modal="true" aria-label="Sync files now" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="sync-chooser"><header><div><span className="eyebrow">Foreground sync</span><h2>Sync now</h2></div><button onClick={onClose} aria-label="Close"><CloseIcon /></button></header><p>Select as many items as your device allows. Use <strong>Select All</strong> if the system picker offers it; otherwise choose a large batch and add more later. Every selection joins the same durable queue.</p><div className="sync-options"><button className="primary-button" onClick={onPhotos}><ImageIcon />Choose photos &amp; videos</button><button className="secondary-button" onClick={onFiles}><FileIcon />Choose files</button>{supportsDirectory && <button className="secondary-button" onClick={onDirectory}><FolderIcon />Choose a folder</button>}</div><div className="security-box"><ShieldIcon /><p><strong>No giant local buffer</strong>Files upload one at a time from bounded slices. Queue metadata is saved locally, but original file bytes are not copied into IndexedDB.</p></div><small className="sync-note">Keep this app open until the queue finishes. If the page reloads, any inaccessible unfinished entries can be dismissed without affecting Telegram files.</small></section></div>;
+  const appending = pendingCount > 0;
+  return <div className="modal-backdrop sync-backdrop" role="dialog" aria-modal="true" aria-label={appending ? "Add files to upload queue" : "Sync files now"} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="sync-chooser"><header><div><span className="eyebrow">{appending ? "Queue more while syncing" : "Foreground sync"}</span><h2>{appending ? "Add to queue" : "Sync now"}</h2></div><button onClick={onClose} aria-label="Close"><CloseIcon /></button></header>{appending && <div className="queue-live-count"><span className="spinner" /><strong>{pendingCount.toLocaleString()} waiting</strong><small>{totalCount.toLocaleString()} in this sync</small></div>}<p>Select another batch whenever the iPhone picker starts to lag. Each selection is appended behind the files already waiting, so you can build a queue of hundreds or thousands over multiple picker rounds.</p><div className="sync-options"><button className="primary-button" onClick={onPhotos}><ImageIcon />Choose photos &amp; videos</button><button className="secondary-button" onClick={onFiles}><FileIcon />Choose files</button>{supportsDirectory && <button className="secondary-button" onClick={onDirectory}><FolderIcon />Choose a folder</button>}</div><div className="security-box"><ShieldIcon /><p><strong>No giant local buffer</strong>Files upload one at a time from bounded slices. Queue metadata is saved locally, but original file bytes are not copied into IndexedDB.</p></div><small className="sync-note">Keep this app open until the queue finishes. iOS may suspend or discard the page in the background; inaccessible entries after a reload can be dismissed without affecting Telegram files.</small></section></div>;
 }
 
 function UploadPanel({ snapshot, onPause, onResume, onSelectMore, onDiscardUnfinished, onDismiss }: {
@@ -1671,11 +1684,10 @@ function UploadPanel({ snapshot, onPause, onResume, onSelectMore, onDiscardUnfin
   onDiscardUnfinished: () => void;
   onDismiss: () => void;
 }) {
-  const complete = snapshot.pending === 0 && snapshot.needsFile === 0;
   const onlyUnfinished = snapshot.needsFile > 0 && snapshot.pending === 0;
   const title = snapshot.paused ? "Sync paused" : onlyUnfinished ? "Unfinished sync" : snapshot.pending > 0 ? "Syncing files" : snapshot.failed > 0 ? "Sync needs attention" : "Sync complete";
   const processed = snapshot.done + snapshot.failed;
-  return <aside className="upload-panel" aria-live="polite"><div className="panel-title"><div><strong>{title}</strong><small>{snapshot.total.toLocaleString()} queued · {snapshot.done.toLocaleString()} uploaded{snapshot.skipped ? ` · ${snapshot.skipped.toLocaleString()} already synced` : ""}{snapshot.duplicatesSkipped ? ` · ${snapshot.duplicatesSkipped.toLocaleString()} duplicate names skipped` : ""}</small></div><button onClick={onlyUnfinished ? onDiscardUnfinished : onDismiss} aria-label={onlyUnfinished ? "Dismiss unfinished sync" : "Hide sync status"}><CloseIcon /></button></div><div className="upload-summary"><div><span>{snapshot.currentName || (snapshot.needsFile ? `${snapshot.needsFile.toLocaleString()} inaccessible local ${snapshot.needsFile === 1 ? "file" : "files"}` : "Queue ready")}</span><strong>{snapshot.currentName ? `${Math.round(snapshot.currentProgress * 100)}%` : `${processed.toLocaleString()}/${snapshot.total.toLocaleString()}`}</strong></div>{snapshot.currentName && <progress className="progress current-upload-progress" max={1} value={snapshot.currentProgress} />}<progress className="progress" max={Math.max(1, snapshot.total)} value={Math.min(snapshot.total, processed)} />{snapshot.currentName && <small>Current file · attempt {snapshot.currentAttempt} of {MAX_UPLOAD_ATTEMPTS}</small>}<small>Overall queue · {processed.toLocaleString()} of {snapshot.total.toLocaleString()} processed</small></div><div className="upload-counts"><span><strong>{snapshot.pending.toLocaleString()}</strong> waiting</span><span><strong>{snapshot.done.toLocaleString()}</strong> done</span><span><strong>{snapshot.failed.toLocaleString()}</strong> failed</span></div>{snapshot.recent.map((entry) => <div className="upload-row" key={entry.id}><FileIcon /><div><span><strong title={entry.name}>{entry.name}</strong><small>{entry.status === "retrying" ? "retrying" : entry.status}</small></span>{entry.error && <em>{entry.error}</em>}</div></div>)}<div className="upload-actions">{snapshot.pending > 0 && !snapshot.paused && <button className="secondary-button" onClick={onPause}>Pause</button>}{(snapshot.paused || snapshot.failed > 0) && <button className="secondary-button" onClick={onResume}>{snapshot.failed > 0 ? "Retry failed" : "Resume"}</button>}{snapshot.needsFile > 0 && <button className="secondary-button" onClick={onDiscardUnfinished}>Dismiss unfinished</button>}{complete && <button className="secondary-button" onClick={onSelectMore}>Sync more</button>}</div><p className="upload-foreground-note">{onlyUnfinished ? "Dismiss removes only the unfinished local queue entries. It never deletes files from Telegram." : `Uploads retry up to ${MAX_UPLOAD_ATTEMPTS} times and continue with the next file after a permanent failure. Keep the app in the foreground.`}</p></aside>;
+  return <aside className="upload-panel" aria-live="polite"><div className="panel-title"><div><strong>{title}</strong><small>{snapshot.total.toLocaleString()} queued · {snapshot.done.toLocaleString()} uploaded{snapshot.skipped ? ` · ${snapshot.skipped.toLocaleString()} already synced` : ""}{snapshot.duplicatesSkipped ? ` · ${snapshot.duplicatesSkipped.toLocaleString()} duplicate names skipped` : ""}</small></div><button onClick={onlyUnfinished ? onDiscardUnfinished : onDismiss} aria-label={onlyUnfinished ? "Dismiss unfinished sync" : "Hide sync status"}><CloseIcon /></button></div><div className="upload-summary"><div><span>{snapshot.currentName || (snapshot.needsFile ? `${snapshot.needsFile.toLocaleString()} inaccessible local ${snapshot.needsFile === 1 ? "file" : "files"}` : "Queue ready")}</span><strong>{snapshot.currentName ? `${Math.round(snapshot.currentProgress * 100)}%` : `${processed.toLocaleString()}/${snapshot.total.toLocaleString()}`}</strong></div>{snapshot.currentName && <progress className="progress current-upload-progress" max={1} value={snapshot.currentProgress} />}<progress className="progress" max={Math.max(1, snapshot.total)} value={Math.min(snapshot.total, processed)} />{snapshot.currentName && <small>Current file · attempt {snapshot.currentAttempt} of {MAX_UPLOAD_ATTEMPTS}</small>}<small>Overall queue · {processed.toLocaleString()} of {snapshot.total.toLocaleString()} processed</small></div><div className="upload-counts"><span><strong>{snapshot.pending.toLocaleString()}</strong> waiting</span><span><strong>{snapshot.done.toLocaleString()}</strong> done</span><span><strong>{snapshot.failed.toLocaleString()}</strong> failed</span></div>{snapshot.recent.map((entry) => <div className="upload-row" key={entry.id}><FileIcon /><div><span><strong title={entry.name}>{entry.name}</strong><small>{entry.status === "retrying" ? "retrying" : entry.status}</small></span>{entry.error && <em>{entry.error}</em>}</div></div>)}<div className="upload-actions"><button className="primary-button" onClick={onSelectMore}><PlusIcon />Add files</button>{snapshot.pending > 0 && !snapshot.paused && <button className="secondary-button" onClick={onPause}>Pause</button>}{(snapshot.paused || snapshot.failed > 0) && <button className="secondary-button" onClick={onResume}>{snapshot.failed > 0 ? "Retry failed" : "Resume"}</button>}{snapshot.needsFile > 0 && <button className="secondary-button" onClick={onDiscardUnfinished}>Dismiss unfinished</button>}</div><p className="upload-foreground-note">{onlyUnfinished ? "Dismiss removes only the unfinished local queue entries. It never deletes files from Telegram." : `Add more picker batches at any time. Uploads retry up to ${MAX_UPLOAD_ATTEMPTS} times and continue with the next file after a permanent failure. Keep the app in the foreground.`}</p></aside>;
 }
 
 function BulkActionBar({ count, allVisibleSelected, busy, onToggleAll, onDownload, onDelete, onCancel }: {

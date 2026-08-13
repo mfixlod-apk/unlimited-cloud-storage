@@ -15,7 +15,7 @@ Developer documentation is indexed in [`docs/README.md`](docs/README.md).
 - Channel switching from the desktop sidebar and mobile drive header
 - Full-history filename search and media-type filters
 - Adaptive off-screen gallery unloading with a configurable 1 GB default memory budget
-- Foreground **Sync now** for very large picker/directory selections, with a durable metadata queue, sequential bounded-memory uploads, pause/resume, stall detection, five-attempt retry, optional duplicate-name skipping, and date-prefixed upload names
+- Foreground **Sync now** for very large picker/directory selections, with repeatable picker batches that append while uploading, a durable metadata queue, sequential bounded-memory uploads, pause/resume, stall detection, five-attempt retry, optional duplicate-name skipping, and date-prefixed upload names
 - Exact-byte image/document storage, broad video/audio uploads, progressive video/audio playback with seeking and a buffer bar, single/bulk downloads, and confirmed permanent deletion
 - Gallery selection mode with select-all-visible, multi-file download, and confirmed batch deletion
 - Responsive desktop/mobile UI with a safe-area-aware phone navigation bar and installable PWA shell
@@ -88,6 +88,7 @@ The maintained [`teleproto`](https://docs.teleproto.dev/) MTProto client is used
 - Video and audio first use same-origin progressive byte-range playback: the browser pulls 1 MB or less at a time, cancels abandoned Telegram requests when seeking, and manages eviction of previously buffered ranges. A playback interruption offers an explicit stream retry instead of silently loading the full file. Images and the initial compatibility fallback still use an in-memory Blob bounded by the configured memory tier: 128 MB at 256 MB, 384 MB at 512 MB, 768 MB at 1 GB, and up to 1.5 GB at 2 GB. Downloads stream directly to a chosen file in browsers with the File System Access API; other browsers use a Blob fallback and warn before very large downloads.
 - Every file type can be uploaded and downloaded as a Telegram document. Inline image/video/audio preview depends on the browser supporting that file's container and codec; unsupported media remains downloadable.
 - Desktop, iOS/Android browser, and installed-PWA uploads use the original picker Blob and read bounded Telegram parts rather than copying the whole file into one JavaScript buffer.
+- The upload button remains an **Add files** action while syncing. Repeated mobile-picker batches are serialized into the same FIFO queue, so selecting roughly 100 items at a time can build a queue of 1,000 or more without starting parallel Telegram upload workers. The practical ceiling still depends on browser/OS memory for live `File` references.
 - The optional `YYYY-MM-DD__` upload prefix uses the date exposed by the device file picker (normally the file modification/capture date). It does not rewrite existing Telegram items or expose location metadata.
 - Duplicate-name prevention compares normalized names already discovered in the selected channel and its local queue. It deliberately does not force a full-history scan before every upload, so an older unloaded duplicate can still exist.
 - An active filename search scans remaining history pages automatically. Very large channels can therefore take time and remain subject to Telegram flood waits.

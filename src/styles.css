@@ -346,6 +346,10 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
 .sync-chooser header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .sync-chooser header h2 { margin: 2px 0 0; }
 .sync-chooser header button { width: 36px; height: 36px; display: grid; flex: 0 0 auto; place-items: center; color: var(--muted); border-radius: 9px; background: var(--soft); }
+.queue-live-count { display: grid; grid-template-columns: 18px auto 1fr; align-items: center; gap: 8px; margin-top: 18px; padding: 10px 12px; color: var(--accent); border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.queue-live-count .spinner { width: 14px; height: 14px; }
+.queue-live-count strong { font-size: 12px; }
+.queue-live-count small { justify-self: end; color: var(--muted); font-size: 10px; }
 .sync-chooser > p { margin: 20px 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .sync-options { display: grid; gap: 9px; margin-bottom: 18px; }
 .sync-options button { width: 100%; }

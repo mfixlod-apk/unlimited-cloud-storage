@@ -60,7 +60,7 @@ Do not store Teleproto `inputEntity` objects. They contain non-plain values, may
 | Telegram 2FA password | Active callback/prompt only |
 | QR token | Active QR image/polling request only |
 | Channel input entity | Active in-memory Telegram session only |
-| Picker `File` objects | Active page only; released after upload |
+| Picker `File` objects | Active page only; repeated selections append references to the same FIFO and each reference is released after upload |
 | Upload queue and batch metadata | IndexedDB until the browser is forgotten or site data is cleared |
 
 The app intentionally has no analytics, remote logging, query-string secrets, or public build-time credential variables.

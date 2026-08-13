@@ -149,6 +149,7 @@ Off-screen chunks unmount their card and thumbnail components, revoke Blob URLs,
 
 ```text
 File picker, directory picker, or drop
+  → copy the picker result immediately and serialize queue bookkeeping
   → optionally prefix the outgoing name with the picker-provided media date
   → optionally skip a normalized name already discovered in this channel/queue
   → fingerprint and persist lightweight queue entries
@@ -161,7 +162,9 @@ File picker, directory picker, or drop
   → refresh newest history page when the queue drains
 ```
 
-The queue UI keeps aggregate counters and at most six recent rows rather than rendering every selected item. This keeps 10,000-file selections from creating a 10,000-node progress panel. IndexedDB stores metadata, not original bytes. After reload, unfinished records become `needs-file`; the notice can be dismissed, which removes only those inaccessible local records and their incomplete batch metadata. **Sync now** dismisses that stale state automatically before opening a normal new picker.
+The queue UI keeps aggregate counters and at most six recent rows rather than rendering every selected item. This keeps 10,000-file selections from creating a 10,000-node progress panel. While the worker is active, both the main upload control and the transfer panel can reopen the picker; each returned batch is serialized through a short enqueue chain and appended FIFO without interrupting the current file or creating a second worker. Copying the returned `FileList` immediately is important on mobile because the browser may clear that live list when its input resets or another picker opens.
+
+IndexedDB stores metadata, not original bytes. Live `File` references for every waiting item remain page-local until their upload finishes, so a thousand-item queue avoids a thousand-file byte buffer but is still subject to the browser's file-handle and memory limits. After reload, unfinished records become `needs-file`; the notice can be dismissed, which removes only those inaccessible local records and their incomplete batch metadata. New batches can be selected without automatically deleting that stale state.
 
 Upload naming changes only the Telegram document filename at send time; it never renames the source file. The date prefix is `YYYY-MM-DD__` and uses the date exposed through the browser picker. Duplicate-name prevention uses Unicode-normalized, case-insensitive comparisons against discovered history and local queue entries. It does not force a potentially expensive full-channel scan.
 
