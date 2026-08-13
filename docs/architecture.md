@@ -140,7 +140,8 @@ Off-screen chunks unmount their card and thumbnail components, revoke Blob URLs,
 File picker or drop
   → add queue entries
   → upload one file at a time
-  → sendFile to selected channel
+  → uploadFile reads bounded Blob slices and returns Telegram InputFile
+  → sendFile posts that unambiguous handle to the selected channel
   → update progress UI
   → refresh newest history page when the queue finishes
 ```

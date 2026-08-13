@@ -118,9 +118,9 @@ This prevents collisions between different channels whose message IDs happen to 
 
 ## Uploads
 
-Files are sent directly with `client.sendFile()`:
+Files use a deterministic two-step Teleproto path: `client.uploadFile()` returns a Telegram `InputFile`, then `client.sendFile()` posts that handle to the selected channel:
 
-- a fresh browser `File` clone is passed without base64 conversion;
+- the original browser picker `File` is passed without cloning or base64 conversion;
 - browser files are sliced into bounded upload parts instead of first being copied into one whole-file `Buffer`;
 - the original size is supplied;
 - browser MIME and explicit filename/video/audio attributes are retained;
@@ -131,7 +131,7 @@ Files are sent directly with `client.sendFile()`:
 
 Cancellation sets Teleproto's callback-specific `isCanceled` property when the `AbortSignal` fires. Test cancellation after every Teleproto upgrade because this convention is library-specific.
 
-Teleproto 1.228's runtime currently checks generic objects before checking native browser `File` instances, despite declaring `File` support. The upload wrapper adds a non-enumerable `read` marker to a fresh `File` clone so it reaches Teleproto's intended browser upload branch. Remove this workaround once upstream fixes the branch ordering. Do not pass the original picker object without the marker; it fails with `Cannot use [object File] as file`.
+Teleproto 1.228's runtime checks generic objects before browser files and its `CustomBuffer` constructor recognizes only Node `buffer`/`filePath` sources. This can produce either `Cannot use [object File] as file` on desktop or `Either one of buffer or filePath should be specified` in installed iOS/Android PWAs. `vite.config.ts` corrects the low-level upload path: browser files are recognized by stable Blob capabilities (`slice()` plus a finite `size`) instead of realm-sensitive `instanceof File`, `CustomBuffer` accepts the browser source, and each Telegram part is read from a Blob slice. `TelegramDrive.upload()` deliberately calls that low-level API first with the real picker `File`; this also retains Teleproto's whole-buffer compatibility behavior if an untransformed dependency is ever loaded. The later `sendFile()` call receives only Teleproto's own `InputFile`, so its ambiguous browser-file/media conversion is bypassed on every platform. Vite uses a versioned dependency-cache directory to prevent application code from being paired with an older optimized Teleproto build. Revalidate these narrow transforms and bump that cache version after every relevant Teleproto patch change.
 
 Teleproto 1.228's custom `File.duration`, `width`, and `height` getters also pass an array directly as the right-hand side of `instanceof`. Reading video duration after a completed upload therefore used to throw `Right-hand side of 'instanceof' is not callable`. The app reads the concrete video/audio attribute instead, and the build transform corrects the dependency getter for any future call site.
 

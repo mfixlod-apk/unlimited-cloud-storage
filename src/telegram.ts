@@ -479,31 +479,28 @@ export class TelegramDrive {
     signal.addEventListener("abort", () => {
       progress.isCanceled = true;
     }, { once: true });
-    // Teleproto 1.228 declares browser File support, but its generic-media
-    // guard currently consumes File instances before its upload branch. A
-    // non-enumerable marker routes a fresh File clone into the intended branch;
-    // the Vite compatibility transform then reads bounded Blob slices.
     const name = safeFileName(file.name, "unnamed");
     const kind = uploadKind(file);
-    const browserFile = new File([file], name, {
-      type: file.type,
-      lastModified: file.lastModified,
-    }) as File & { read?: never };
-    Object.defineProperty(browserFile, "read", {
-      configurable: true,
-      enumerable: false,
-      value: undefined,
+    const client = this.requiredClient();
+    // Use the real picker File here. Unpatched Teleproto understands it as a
+    // compatibility fallback; the production transform upgrades reads to
+    // bounded Blob slices. sendFile only receives Telegram's own InputFile.
+    const uploaded = await client.uploadFile({
+      file,
+      workers: 1,
+      onProgress: progress,
     });
-    return this.requiredClient().sendFile(channel.inputEntity, {
-      file: browserFile,
+    if (signal.aborted) throw new DOMException("Upload cancelled", "AbortError");
+    return client.sendFile(channel.inputEntity, {
+      file: uploaded,
       fileSize: file.size,
-      attributes: uploadAttributes(browserFile, kind),
+      attributes: uploadAttributes(file, kind).map((attribute) => attribute instanceof Api.DocumentAttributeFilename
+        ? new Api.DocumentAttributeFilename({ fileName: name })
+        : attribute),
       // A drive must retain the original image bytes. Sending JPEG/PNG as a
       // Telegram photo would recompress it and discard the original filename.
       forceDocument: kind === "image",
       supportsStreaming: kind === "video" && (file.type === "video/mp4" || ["m4v", "mp4"].includes(fileExtension(file.name))),
-      workers: 1,
-      progressCallback: progress,
     });
   }
 

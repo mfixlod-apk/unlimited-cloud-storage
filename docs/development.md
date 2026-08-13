@@ -19,6 +19,7 @@ Validation commands:
 ```bash
 npm run typecheck
 npm run build
+npm run test:upload
 npm run preview
 npm audit --omit=dev
 ```
@@ -152,6 +153,8 @@ There is currently no automated Telegram integration suite because it would requ
 ### Transfers
 
 - single and multiple file upload;
+- file upload from iOS Safari, an iOS home-screen installation, Android Chrome, and an Android installed PWA;
+- photo-library, camera, Files/document-provider, zero-byte, and large-file selections where the platform permits them;
 - drag-and-drop upload;
 - upload cancellation and retry after cancellation;
 - image/video/audio preview;
@@ -207,9 +210,9 @@ Inspect the raw page IDs and ensure `nextOffset` is calculated from all raw mess
 
 Clear the thumbnail cache, verify the message actually has a Telegram thumbnail, and test whether thumbnail index `1` remains supported after a Teleproto upgrade. Missing thumbnails should fall back to an icon rather than fail the gallery.
 
-### Browser upload says `Cannot use [object File] as file`
+### Mobile upload rejects a valid picker file
 
-Confirm `TelegramDrive.upload()` still creates the marked browser `File` clone described in `telegram-integration.md`. This compensates for Teleproto 1.228's browser-file branch ordering. Check upstream behavior after upgrading Teleproto before changing or removing the marker.
+Errors such as `Cannot use [object File] as file`, `Could not create buffer from file [object Object]`, and `Either one of buffer or filePath should be specified` mean the browser object fell into a Node-oriented or generic-media Teleproto branch, or newer application code was paired with a stale optimized dependency. Confirm `TelegramDrive.upload()` calls `uploadFile()` with the real picker `File` and passes only the resulting `InputFile` to `sendFile()`. Also confirm all upload transforms in `vite.config.ts` still match. The production bundle should contain a `browserFile` `CustomBuffer` option and capability checks for `slice`/finite `size`; it must not depend solely on `instanceof File`. Bump `cacheDir` when changing these transforms, stop the old Vite process, and restart development.
 
 ### Preview or download reports an invalid `instanceof` right-hand side
 

@@ -55,17 +55,38 @@ function patchTeleprotoSource(source: string, path: string) {
   if (/[\\/]client[\\/]uploads\.js$/.test(path)) {
     let patched = replaceExpected(
       source,
+      "if (!options.buffer && !options.filePath) {",
+      "if (!options.buffer && !options.filePath && !options.browserFile) {",
+      1,
+      "browser upload source validation",
+    );
+    patched = replaceExpected(
+      patched,
       "const { buffer, filePath } = this.options;\n        if (buffer) {",
-      "const { buffer, filePath, browserFile } = this.options;\n        if (browserFile) {\n            return Buffer.from(await browserFile.slice(begin, end).arrayBuffer());\n        }\n        else if (buffer) {",
+      "const { buffer, filePath, browserFile } = this.options;\n        if (browserFile) {\n            return Buffer.from(await new Response(browserFile.slice(begin, end)).arrayBuffer());\n        }\n        else if (buffer) {",
       1,
       "browser upload buffer",
     );
     patched = replaceExpected(
       patched,
       "const options = {};\n    if (fileSize > maxBufferSize && file instanceof CustomFile) {",
-      'const options = {};\n    if (typeof File !== "undefined" && file instanceof File) {\n        options.browserFile = file;\n    }\n    else if (fileSize > maxBufferSize && file instanceof CustomFile) {',
+      'const options = {};\n    if (file && typeof file === "object" && typeof file.slice === "function" && Number.isFinite(file.size)) {\n        options.browserFile = file;\n    }\n    else if (fileSize > maxBufferSize && file instanceof CustomFile) {',
       1,
       "browser upload source",
+    );
+    patched = replaceExpected(
+      patched,
+      '!("read" in file)) {',
+      '!("read" in file) &&\n        !(typeof file.slice === "function" && Number.isFinite(file.size))) {',
+      1,
+      "browser upload media guard",
+    );
+    patched = replaceExpected(
+      patched,
+      'else if ((typeof File !== "undefined" && file instanceof File) ||\n            file instanceof CustomFile) {',
+      'else if ((file && typeof file === "object" && typeof file.slice === "function" && Number.isFinite(file.size)) ||\n            file instanceof CustomFile) {',
+      1,
+      "browser upload file recognition",
     );
     return replaceExpected(
       patched,
@@ -81,6 +102,9 @@ function patchTeleprotoSource(source: string, path: string) {
 
 export default defineConfig(({ command }) => ({
   base: "./",
+  // Bump when a dependency source transform changes so Vite cannot reuse an
+  // older optimized Teleproto bundle with newer application code.
+  cacheDir: "node_modules/.vite-unlimited-cloud-v2",
   plugins: [
     {
       name: "teleproto-browser-fixes",
