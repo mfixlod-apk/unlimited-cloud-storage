@@ -49,6 +49,8 @@ Important screen components:
 - `DriveScreen` owns lightweight history metadata, filters, month grouping, uploads, bulk selection, viewer state, and infinite scrolling.
 - `SettingsPanel` exposes upload naming/duplicate preferences, the memory budget, cache clearing, device forgetting, and Telegram logout.
 
+On mobile, the active channel switcher sits in the title/navigation row beside the current file category, above search and sort/filter tools. Sync and Settings remain compact actions in the top app bar. The switcher reuses the same channel dropdown as desktop, including inline private-channel creation and the public-channel visibility toggle.
+
 The UI is currently kept in one file because the product is still small. If `App.tsx` grows substantially, split by screen while keeping orchestration in `App` and Telegram operations behind `TelegramDrive`.
 
 ### Telegram boundary
@@ -150,7 +152,7 @@ File picker, directory picker, or drop
   → refresh newest history page when the queue drains
 ```
 
-The queue UI keeps aggregate counters and at most six recent rows rather than rendering every selected item. This keeps 10,000-file selections from creating a 10,000-node progress panel. IndexedDB stores metadata, not original bytes. After reload, unfinished records become `needs-file`; selecting the same files again relinks them by picker metadata and resumes the original batches.
+The queue UI keeps aggregate counters and at most six recent rows rather than rendering every selected item. This keeps 10,000-file selections from creating a 10,000-node progress panel. IndexedDB stores metadata, not original bytes. After reload, unfinished records become `needs-file`; the notice can be dismissed, which removes only those inaccessible local records and their incomplete batch metadata. **Sync now** dismisses that stale state automatically before opening a normal new picker.
 
 Upload naming changes only the Telegram document filename at send time; it never renames the source file. The date prefix is `YYYY-MM-DD__` and uses the date exposed through the browser picker. Duplicate-name prevention uses Unicode-normalized, case-insensitive comparisons against discovered history and local queue entries. It does not force a potentially expensive full-channel scan.
 

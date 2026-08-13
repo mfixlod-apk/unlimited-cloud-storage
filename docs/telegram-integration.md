@@ -140,7 +140,7 @@ The duplicate check is intentionally best-effort. It catches duplicates in the c
 
 When every member of a new batch is `done`, `writeSyncCheckpoint()` sends a text message beginning with `UCS_SYNC_V1`. `toCloudItem()` already ignores text-only messages, so checkpoints never appear in the gallery. The JSON contains aggregate non-secret audit data only. It is not a full content manifest and must never contain credentials, session strings, absolute paths, EXIF location, or original bytes.
 
-Because browser file capabilities cannot be reconstructed after reload, incomplete records become `needs-file`. A later picker selection first matches channel, relative path when supplied, filename, size, and modification time. If a picker changes the path, a unique filename/size/modification-time match is accepted. This is a resume fingerprint, not a cryptographic content hash.
+Because browser file capabilities cannot be reconstructed after reload, incomplete records become `needs-file`. They are presented as a dismissible unfinished sync rather than a mandatory reselection flow. Dismissing removes only those local records and incomplete batch metadata; it never deletes Telegram files. Starting a new sync performs the same cleanup automatically, so stale entries cannot block a new selection. Within the same page lifetime, picker metadata remains a resume fingerprint rather than a cryptographic content hash.
 
 Cancellation sets Teleproto's callback-specific `isCanceled` property when the `AbortSignal` fires. Test cancellation after every Teleproto upgrade because this convention is library-specific.
 

@@ -112,8 +112,16 @@ export const localStore = {
     for (const record of records) void tx.store.put(record);
     await tx.done;
   },
+  deleteUploadRecords: async (ids: string[]) => {
+    if (!ids.length) return;
+    const db = await dbPromise;
+    const tx = db.transaction("uploadQueue", "readwrite");
+    for (const id of ids) void tx.store.delete(id);
+    await tx.done;
+  },
   getUploadBatches: (channelId: string) => dbPromise.then((db) => db.getAllFromIndex("uploadBatches", "by-channel", channelId)),
   saveUploadBatch: (batch: UploadBatchRecord) => dbPromise.then((db) => db.put("uploadBatches", batch)),
+  deleteUploadBatch: (id: string) => dbPromise.then((db) => db.delete("uploadBatches", id)),
   saveUploadBatchWithRecords: async (batch: UploadBatchRecord, records: UploadQueueRecord[]) => {
     const db = await dbPromise;
     const tx = db.transaction(["uploadQueue", "uploadBatches"], "readwrite");

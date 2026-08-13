@@ -87,7 +87,7 @@ The maintained [`teleproto`](https://docs.teleproto.dev/) MTProto client is used
 - Duplicate-name prevention compares normalized names already discovered in the selected channel and its local queue. It deliberately does not force a full-history scan before every upload, so an older unloaded duplicate can still exist.
 - An active filename search scans remaining history pages automatically. Very large channels can therefore take time and remain subject to Telegram flood waits.
 - Uploads and downloads must remain in the foreground on mobile browsers. An iOS Dynamic Island Live Activity would require a native app and would display progress only; it cannot grant a PWA background execution.
-- The PWA cannot permanently enumerate an iPhone/Android photo library or wake reliably on a schedule. A reloaded unfinished sync asks the user to select those files again; it never duplicates the originals into IndexedDB as a retry buffer.
+- The PWA cannot permanently enumerate an iPhone/Android photo library or wake reliably on a schedule. After reload, inaccessible unfinished entries can be dismissed and new files selected normally; dismissing removes only local queue metadata.
 - Telegram flood waits, per-file limits, and account restrictions still apply.
 
 This project is independent and is not affiliated with or endorsed by Telegram.

@@ -114,7 +114,7 @@ The option is off by default so a successful login does not create a persistent 
 
 **Why:** Browser storage cannot safely duplicate a 10,000-file photo library, while iOS and other mobile browsers cannot restore picker capabilities or guarantee periodic background execution. Aggregate UI state also avoids retaining thousands of progress components.
 
-**Consequences:** Users must keep the PWA open. Reloaded unfinished queues require the user to select those files again. Native automatic photo backup remains a separate product phase and must not be implied by the PWA UI.
+**Consequences:** Users must keep the PWA open. Reloaded unfinished entries can be dismissed because their browser file capabilities no longer exist; this removes only local queue metadata and never Telegram files. Native automatic photo backup remains a separate product phase and must not be implied by the PWA UI.
 
 ## 15. Best-effort upload naming; no location filenames
 

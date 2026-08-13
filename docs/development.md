@@ -162,7 +162,7 @@ There is currently no automated Telegram integration suite because it would requ
 - adding another selection while syncing appends to the existing single worker;
 - pause during an upload and during retry backoff, followed by a successful resume;
 - offline recovery waits for connectivity without consuming all retry attempts;
-- reload with unfinished queue records shows **Select unfinished files**, and reselecting them resumes while completed matches are skipped;
+- reload with unfinished queue records shows a dismissible notice; dismissing removes only unfinished local metadata, and **Sync now** opens a fresh picker without requiring reselection;
 - a completed foreground-sync batch creates one `UCS_SYNC_V1` text checkpoint that stays out of the gallery;
 - image/video/audio preview;
 - progressive video/audio startup before the full file downloads, forward/backward seeking, and the visible buffered-range bar;
@@ -198,6 +198,7 @@ There is currently no automated Telegram integration suite because it would requ
 ### Responsive and accessibility
 
 - widths near 390 px, 580 px, 900 px, and desktop;
+- on mobile, the channel switcher remains beside the current category above search/tools, its dropdown stays inside the viewport, and Sync/Settings remain reachable in the top app bar;
 - keyboard navigation through forms and primary actions;
 - visible focus states;
 - dialog close controls and backdrop behavior;
