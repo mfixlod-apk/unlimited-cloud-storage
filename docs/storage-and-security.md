@@ -18,7 +18,7 @@ The app does not provide end-to-end or zero-knowledge encryption. Telegram recei
 | `channelId` | `string` | Rediscover and restore the selected broadcast channel |
 | `memoryLimitMb` | `number` | User-selected gallery/preview memory budget; defaults to 1024 MB |
 | `preventDuplicateNames` | `boolean` | Skip newly selected uploads whose normalized outgoing filename is already known in the selected channel/local queue; defaults to false |
-| `datePrefixUploads` | `boolean` | Prefix new outgoing filenames with `YYYY-MM-DD__` from embedded image capture metadata or a recognizable filename date; supported photos without either remain unprefixed; defaults to false |
+| `datePrefixUploads` | `boolean` | Prefix new outgoing filenames with `YYYY-MM-DD__` from embedded image capture metadata, a recognizable filename date, or finally the browser file's last-modified date; defaults to false |
 | `theme` | `"light"` or `"dark"` | Browser appearance preference; defaults to the operating-system preference until explicitly selected |
 
 ### `thumbnails`

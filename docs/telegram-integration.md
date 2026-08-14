@@ -139,7 +139,7 @@ Foreground sync has no application-level selection-count cap. It persists only l
 
 Two default-off naming controls are applied only when a new queue entry is created:
 
-- date prefixing sends `YYYY-MM-DD__original-name`, preferring embedded `DateTimeOriginal`, `CreateDate`, or `DateTimeDigitized` from supported images and then a recognizable date in the original filename. A supported photo with neither remains unprefixed instead of inheriting a misleading picker/export timestamp; unsupported file categories retain the `File.lastModified` fallback;
+- date prefixing sends `YYYY-MM-DD__original-name`, preferring embedded `DateTimeOriginal`, `CreateDate`, or `DateTimeDigitized` from supported images, then a recognizable date in the original filename, and finally `File.lastModified` for every file category;
 - duplicate-name prevention normalizes outgoing names with Unicode NFKC, trims them, and compares case-insensitively against discovered channel items and every local queue record for that channel.
 
 The duplicate check is intentionally best-effort. It catches duplicates in the current selection, the persistent local queue, and history already loaded by the gallery. It does not pull the entire channel before an upload because that would make syncing a very large channel slow and flood-wait prone. It compares names rather than content hashes, so same bytes under different names are allowed and different bytes under the same name are skipped. Date parsing reads only the selected local file's date tags and deliberately ignores location data. Neither setting renames an existing Telegram message or the source file.
