@@ -42,6 +42,11 @@ The Vite dev server also applies a development-only CSP transform that permits i
 │   └── icons
 ├── src/
 │   ├── App.tsx
+│   ├── screens/
+│   │   ├── Brand.tsx
+│   │   ├── DriveScreen.tsx
+│   │   ├── OnboardingScreens.tsx
+│   │   └── shared.ts
 │   ├── icons.tsx
 │   ├── main.tsx
 │   ├── storage.ts
@@ -99,23 +104,21 @@ Generated `dist/`, `node_modules/`, TypeScript build information, and emitted Vi
 5. In browser developer tools, verify Telegram requests are absent from Cache Storage.
 6. Test an online load followed by an offline reload.
 
-### Split `App.tsx`
+### Screen organization
 
-Suggested direction:
+The current screen-level split is:
 
 ```text
 src/
-├── app/App.tsx
-├── auth/CredentialsScreen.tsx
-├── auth/AuthScreen.tsx
-├── channels/ChannelScreen.tsx
-├── drive/DriveScreen.tsx
-├── drive/MediaCard.tsx
-├── drive/Viewer.tsx
-└── settings/SettingsPanel.tsx
+├── App.tsx
+└── screens/
+    ├── Brand.tsx
+    ├── DriveScreen.tsx
+    ├── OnboardingScreens.tsx
+    └── shared.ts
 ```
 
-Move components without moving Telegram or IndexedDB logic into them. Preserve the top-level stage machine until a tested routing/state solution replaces it.
+Keep the top-level stage machine in `App.tsx`. Extract another drive component only when it develops an independent responsibility; do not move Telegram or IndexedDB logic around merely to make files smaller.
 
 ## Manual test matrix
 

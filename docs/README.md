@@ -30,7 +30,11 @@ The production build and responsive UI have been checked locally. A live Telegra
 
 | Path | Responsibility |
 | --- | --- |
-| [`src/App.tsx`](../src/App.tsx) | Application state machine, screens, gallery, transfer UI, viewer, and settings |
+| [`src/App.tsx`](../src/App.tsx) | Top-level application state machine and screen orchestration |
+| [`src/screens/OnboardingScreens.tsx`](../src/screens/OnboardingScreens.tsx) | Landing, authentication, and channel-selection screens |
+| [`src/screens/DriveScreen.tsx`](../src/screens/DriveScreen.tsx) | Drive workspace, gallery, transfers, viewer, and settings |
+| [`src/screens/Brand.tsx`](../src/screens/Brand.tsx) | Shared application brand component |
+| [`src/screens/shared.ts`](../src/screens/shared.ts) | Small UI-only formatting, error, account-name, and theme helpers |
 | [`src/telegram.ts`](../src/telegram.ts) | The only Telegram/Teleproto integration boundary |
 | [`src/storage.ts`](../src/storage.ts) | IndexedDB schema and local persistence operations |
 | [`src/styles.css`](../src/styles.css) | Entire visual system and responsive layout |

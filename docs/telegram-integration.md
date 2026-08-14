@@ -201,7 +201,7 @@ There is no application trash or undo. Any future soft-delete feature needs Tele
 
 ## Error handling
 
-Raw Telegram errors are mapped by `friendlyError()` in `App.tsx`. Known credential, phone, code, password, flood-wait, cancellation, and network cases receive user-safe text. Avoid printing raw auth errors to the console because library errors can include sensitive request context.
+Raw Telegram errors are mapped by `friendlyError()` in `src/screens/shared.ts`. Known credential, phone, code, password, flood-wait, cancellation, and network cases receive user-safe text. Avoid printing raw auth errors to the console because library errors can include sensitive request context.
 
 When adding a Telegram operation, handle at least:
 

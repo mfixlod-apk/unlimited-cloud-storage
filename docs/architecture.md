@@ -26,7 +26,7 @@ Telegram channel history is authoritative for files. IndexedDB is a disposable d
 
 ### UI and orchestration
 
-[`src/App.tsx`](../src/App.tsx) owns the current application state and all screens. It deliberately does not call Teleproto directly; it calls the exported `telegramDrive` service.
+[`src/App.tsx`](../src/App.tsx) owns the application state machine and coordinates the screens in [`src/screens/`](../src/screens). UI code deliberately does not call Teleproto directly; it calls the exported `telegramDrive` service.
 
 The top-level `Stage` state is the application state machine:
 
@@ -60,7 +60,7 @@ Desktop credential onboarding is a viewport-height split layout that deliberatel
 
 On mobile the landing navigation is fixed to the viewport. Its signed-out **Log in** button scrolls to the credentials section, and its authenticated **Open drive** button returns to the preserved workspace. The same navigation and marketing content is used at desktop and phone widths; only its layout and scrolling behavior change.
 
-The UI is currently kept in one file because the product is still small. If `App.tsx` grows substantially, split by screen while keeping orchestration in `App` and Telegram operations behind `TelegramDrive`.
+The UI is split at screen boundaries: onboarding/auth/channel selection live together, while the larger drive workspace keeps its tightly coupled gallery, transfer, viewer, and settings components together. Keep orchestration in `App` and Telegram operations behind `TelegramDrive`.
 
 ### Telegram boundary
 

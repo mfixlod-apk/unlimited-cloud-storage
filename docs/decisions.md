@@ -98,7 +98,7 @@ The option is off by default so a successful login does not create a persistent 
 
 **Why:** Onboarding and drive access are a short linear session-dependent flow, and URL routes must not expose authentication data.
 
-**Consequences:** `App.tsx` is currently large. Components can be extracted later without changing the state-machine semantics.
+**Consequences:** `App.tsx` stays small and owns the state-machine semantics, while screen components can evolve without adding a routing dependency.
 
 ## 13. Lightweight metadata and windowed gallery chunks
 
