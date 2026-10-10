@@ -31,6 +31,8 @@ export interface SavedAlbum {
   title: string;
   itemIds: number[];
   createdAt: number;
+  parentId?: string;
+  isVault?: boolean;
 }
 
 export interface GalleryMetadata {
