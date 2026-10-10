@@ -333,6 +333,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
   const [bulkBusy, setBulkBusy] = useState(false);
   const [settings, setSettings] = useState(false);
   const [showInsights, setShowInsights] = useState(false);
+  const [showGooglePhotos, setShowGooglePhotos] = useState(false);
   const [verificationBusy, setVerificationBusy] = useState(false);
   const [verificationMessage, setVerificationMessage] = useState("");
   const [faceBusy, setFaceBusy] = useState(false);
