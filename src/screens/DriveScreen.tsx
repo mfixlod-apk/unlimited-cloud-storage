@@ -1168,25 +1168,22 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
 
   const labelSelectedFiles = async () => {
     const ids = Array.from(checkedIds);
-    if (ids.length !== 1) { window.alert("To give a document its own name and keywords, select exactly one file."); return; }
-    const first = items.find((item) => item.id === ids[0]);
-    const existing = first ? galleryMetadata.fileLabels?.[first.id] : undefined;
-    const title = window.prompt("Display name (e.g. Passport scan or Important invoice). Leave blank to keep the original name:", existing?.title || "");
-    if (title === null) return;
-    const tagsText = window.prompt("Search keywords / tags, separated by commas (e.g. passport, 2026, important):", existing?.tags.join(", ") || "");
+    if (ids.length !== 1) { window.alert("Select exactly one file to add search keywords."); return; }
+    const id = ids[0];
+    const existing = galleryMetadata.fileLabels?.[id];
+    const tagsText = window.prompt("Add search keywords separated by commas. The original filename is already shown under the thumbnail:", existing?.tags.join(", ") || "");
     if (tagsText === null) return;
-    const note = window.prompt("Optional note (e.g. expires in 2028):", existing?.note || "");
+    const note = window.prompt("Optional note:", existing?.note || "");
     if (note === null) return;
     const fileLabels = { ...(galleryMetadata.fileLabels || {}) };
-    ids.forEach((id) => {
-      const previous = fileLabels[id];
-      fileLabels[id] = { title: title.trim() || previous?.title || "", tags: tagsText.split(",").map((tag) => tag.trim()).filter(Boolean), note: note.trim() || undefined };
-      if (!fileLabels[id].title && !fileLabels[id].tags.length && !fileLabels[id].note) delete fileLabels[id];
-    });
+    const tags = tagsText.split(",").map((tag) => tag.trim()).filter(Boolean);
+    if (!tags.length && !note.trim()) delete fileLabels[id];
+    else fileLabels[id] = { title: "", tags, note: note.trim() || undefined };
     await saveGalleryMetadata({ ...galleryMetadata, fileLabels });
     setSearch("");
-    window.alert(`Saved names and search tags for ${ids.length} file(s). You can find them with the search box.`);
+    window.alert("Saved search keywords. The original filename remains visible under the thumbnail.");
   };
+
 
   const createFolder = async (isVault = false) => {
     const title = window.prompt(isVault ? "Name your vault folder" : "Name the new folder");
@@ -1422,7 +1419,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
         <div className="mobile-tabs">{tabs.map(({ value, label }) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div>
         <section className="folder-toolbar" aria-label="Folders">
           <div className="folder-toolbar-title"><strong>{activeAlbumId ? (galleryMetadata.albums.find((entry) => entry.id === activeAlbumId)?.title || "Folder") : "My folders"}</strong>{activeAlbumId && <button className="secondary-button" onClick={() => { const current = galleryMetadata.albums.find((entry) => entry.id === activeAlbumId); setActiveAlbumId(current?.parentId); setVaultUnlocked(false); }}>← Back</button>}</div>
-          <div className="folder-toolbar-actions">{selectionMode && <button className="secondary-button" onClick={() => void labelSelectedFiles()}>✎ Name / tag selected</button>}<button className="secondary-button" onClick={() => void createFolder(false)}>＋ New folder</button><button className="secondary-button" onClick={() => void createFolder(true)}>🔒 New vault</button>{selectionMode && <button className="secondary-button" onClick={() => void addSelectedToFolder()}>Move selected</button>}</div>
+          <div className="folder-toolbar-actions">{selectionMode && <button className="secondary-button" onClick={() => void labelSelectedFiles()}>✎ Add search tags</button>}<button className="secondary-button" onClick={() => void createFolder(false)}>＋ New folder</button><button className="secondary-button" onClick={() => void createFolder(true)}>🔒 New vault</button>{selectionMode && <button className="secondary-button" onClick={() => void addSelectedToFolder()}>Move selected</button>}</div>
           <div className="folder-list">{galleryMetadata.albums.filter((folder) => folder.parentId === activeAlbumId).map((folder) => <button key={folder.id} className={folder.isVault ? "folder-tile vault-folder" : "folder-tile"} onClick={() => void openFolder(folder)}><span>{folder.isVault ? "🔒" : "📁"}</span><strong>{folder.title}</strong><small>{folder.itemIds.length} items</small></button>)}</div>
         </section>
         <input ref={mediaInput} type="file" accept="image/*,video/*" multiple hidden onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void handleFiles(event.target.files); event.target.value = ""; }} />
