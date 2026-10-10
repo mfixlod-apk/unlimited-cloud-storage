@@ -1080,6 +1080,43 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     });
   };
 
+  const selectEntireGallery = async () => {
+    if (bulkBusy) return;
+    if (!hasMore) {
+      setCheckedIds(new Set(visibleItems.map((item) => item.id)));
+      return;
+    }
+    setBulkBusy(true);
+    setLoadingMore(true);
+    setError("");
+    try {
+      const requestedKey = `${channel.id}:${sortOrder}`;
+      const allItems = [...items];
+      let nextOffset = offsetRef.current;
+      let more = true;
+      while (more) {
+        const page = await telegramDrive.getHistory(channel, nextOffset, 100, sortOrder === "oldest");
+        if (activeHistoryKeyRef.current !== requestedKey) return;
+        for (const item of page.items) {
+          if (!allItems.some((existing) => existing.id === item.id)) allItems.push(item);
+        }
+        nextOffset = page.nextOffset;
+        more = page.hasMore;
+      }
+      setItems(allItems);
+      offsetRef.current = nextOffset;
+      setHasMore(false);
+      const query = search.trim().toLocaleLowerCase();
+      const matches = allItems.filter((item) => (filter === "all" || item.kind === filter) && (!query || item.name.toLocaleLowerCase().includes(query)));
+      setCheckedIds(new Set(matches.map((item) => item.id)));
+    } catch (cause) {
+      setError(`Could not load the entire gallery: ${friendlyError(cause)}`);
+    } finally {
+      setBulkBusy(false);
+      setLoadingMore(false);
+    }
+  };
+
   const downloadSelected = async () => {
     const targets = [...checkedItems];
     if (!targets.length || bulkBusy) return;
@@ -1201,7 +1238,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
       {dragging && <div className="drop-overlay" onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={onDrop}><div><UploadIcon /><h2>Drop to upload</h2><p>Files go directly to {channel.title}</p></div></div>}
       {showSyncChooser && <SyncChooser supportsDirectory={directoryPickerSupported} pendingCount={uploadSnapshot.pending} totalCount={uploadSnapshot.total} onPhotos={() => mediaInput.current?.click()} onFiles={() => fileInput.current?.click()} onDirectory={() => void selectDirectory()} onClose={() => setShowSyncChooser(false)} />}
       {showUploadPanel && (uploadSnapshot.total > 0 || uploadSnapshot.skipped > 0 || uploadSnapshot.duplicatesSkipped > 0) && <UploadPanel snapshot={uploadSnapshot} onPause={pauseUploads} onResume={() => void resumeUploads()} onSelectMore={() => setShowSyncChooser(true)} onDiscardUnfinished={() => void dismissUnfinishedUploads()} onDismiss={() => setShowUploadPanel(false)} />}
-      {selectionMode && <BulkActionBar count={checkedItems.length} allVisibleSelected={allVisibleChecked} busy={bulkBusy} onToggleAll={toggleAllVisible} onDownload={() => void downloadSelected()} onDelete={() => void deleteSelected()} onCancel={() => { setSelectionMode(false); setCheckedIds(new Set()); }} />}
+      {selectionMode && <BulkActionBar count={checkedItems.length} allVisibleSelected={allVisibleChecked} busy={bulkBusy} onToggleAll={toggleAllVisible} onSelectEntireGallery={() => void selectEntireGallery()} onDownload={() => void downloadSelected()} onDelete={() => void deleteSelected()} onCancel={() => { setSelectionMode(false); setCheckedIds(new Set()); }} />}
       {downloadEntry && <DownloadPanel entry={downloadEntry} onCancel={() => { bulkCancelRequested.current = bulkBusy; downloadAbort.current?.abort(); }} />}
       {selected && <Viewer key={selected.id} channel={channel} item={selected} previewLimitBytes={previewLimitBytes} onClose={() => setSelected(undefined)} onPrevious={previousItem ? () => setSelected(previousItem) : undefined} onNext={nextItem ? () => setSelected(nextItem) : undefined} onDownload={() => void downloadItem(selected)} onDelete={() => void deleteItem(selected)} />}
       {settings && <SettingsPanel account={account} theme={theme} memoryLimitMb={memoryLimitMb} effectiveMemoryMb={effectiveMemoryMb} preventDuplicateNames={preventDuplicateNames} datePrefixUploads={datePrefixUploads} onTheme={onTheme} onMemoryLimit={async (value) => { setMemoryLimitMb(value); await localStore.saveMemoryLimitMb(value); }} onPreventDuplicateNames={async (value) => { setPreventDuplicateNames(value); await localStore.savePreventDuplicateNames(value); }} onDatePrefixUploads={async (value) => { setDatePrefixUploads(value); await localStore.saveDatePrefixUploads(value); }} onClose={() => setSettings(false)} onForget={onForget} onLogOut={onLogOut} />}
@@ -1454,16 +1491,17 @@ function UploadPanel({ snapshot, onPause, onResume, onSelectMore, onDiscardUnfin
   return <aside className="upload-panel" aria-live="polite"><div className="panel-title"><div><strong>{rateLimitRemaining ? "Waiting for Telegram" : title}</strong><small>{snapshot.total.toLocaleString()} queued · {snapshot.done.toLocaleString()} uploaded{snapshot.skipped ? ` · ${snapshot.skipped.toLocaleString()} already synced` : ""}{snapshot.duplicatesSkipped ? ` · ${snapshot.duplicatesSkipped.toLocaleString()} duplicate names skipped` : ""}</small></div><button onClick={onlyUnfinished ? onDiscardUnfinished : onDismiss} aria-label={onlyUnfinished ? "Dismiss unfinished sync" : "Hide sync status"}><CloseIcon /></button></div><div className="upload-summary"><div><span>{snapshot.currentName || (snapshot.needsFile ? `${snapshot.needsFile.toLocaleString()} inaccessible local ${snapshot.needsFile === 1 ? "file" : "files"}` : "Queue ready")}</span><strong>{snapshot.currentName ? `${Math.round(snapshot.currentProgress * 100)}%` : `${processed.toLocaleString()}/${snapshot.total.toLocaleString()}`}</strong></div>{snapshot.currentName && <progress className="progress current-upload-progress" max={1} value={snapshot.currentProgress} />}<progress className="progress" max={Math.max(1, snapshot.total)} value={Math.min(snapshot.total, processed)} />{snapshot.currentName && <small>Current file · attempt {snapshot.currentAttempt} of {MAX_UPLOAD_ATTEMPTS}</small>}<small>Overall queue · {processed.toLocaleString()} of {snapshot.total.toLocaleString()} processed{estimatedRemaining ? ` · ${formatRemainingTime(estimatedRemaining)}` : snapshot.pending > 0 && !snapshot.paused ? " · estimating after the first file" : ""}</small></div>{rateLimitRemaining > 0 && <div className="rate-limit-wait"><div><span><i />Telegram asked this app to slow down</span><strong>{formatCountdown(rateLimitRemaining)}</strong></div><progress max={1} value={rateLimitProgress} /><small>The current file will resume automatically. This wait does not use a retry attempt.</small></div>}<div className="upload-counts"><span><strong>{snapshot.pending.toLocaleString()}</strong> waiting</span><span><strong>{snapshot.done.toLocaleString()}</strong> done</span><span><strong>{snapshot.failed.toLocaleString()}</strong> failed</span></div>{snapshot.recent.map((entry) => <div className="upload-row" key={entry.id}><FileIcon /><div><span><strong title={entry.name}>{entry.name}</strong><small>{entry.status === "retrying" ? "retrying" : entry.status}</small></span>{entry.error && <em>{entry.error}</em>}</div></div>)}<div className="upload-actions"><button className="primary-button" onClick={onSelectMore}><PlusIcon />Add files</button>{snapshot.pending > 0 && !snapshot.paused && <button className="secondary-button" onClick={onPause}>Pause</button>}{(snapshot.paused || snapshot.failed > 0) && <button className="secondary-button" onClick={onResume}>{snapshot.failed > 0 ? "Retry failed" : "Resume"}</button>}{snapshot.needsFile > 0 && <button className="secondary-button" onClick={onDiscardUnfinished}>Dismiss unfinished</button>}</div><p className="upload-foreground-note">{onlyUnfinished ? "Dismiss removes only the unfinished local queue entries. It never deletes files from Telegram." : `Add more picker batches at any time. Uploads retry up to ${MAX_UPLOAD_ATTEMPTS} times and continue with the next file after a permanent failure. Keep the app in the foreground.`}</p></aside>;
 }
 
-function BulkActionBar({ count, allVisibleSelected, busy, onToggleAll, onDownload, onDelete, onCancel }: {
+function BulkActionBar({ count, allVisibleSelected, busy, onToggleAll, onSelectEntireGallery, onDownload, onDelete, onCancel }: {
   count: number;
   allVisibleSelected: boolean;
   busy: boolean;
   onToggleAll: () => void;
+  onSelectEntireGallery: () => void;
   onDownload: () => void;
   onDelete: () => void;
   onCancel: () => void;
 }) {
-  return <aside className="bulk-action-bar" aria-label="Selected file actions"><strong>{count.toLocaleString()} selected</strong><button className="bulk-select-all" onClick={onToggleAll} disabled={busy}>{allVisibleSelected ? "Clear visible" : "Select all visible"}</button><span /><button onClick={onDownload} disabled={!count || busy}><DownloadIcon />Download</button><button className="danger" onClick={onDelete} disabled={!count || busy}><TrashIcon />Delete</button><button className="bulk-close" onClick={onCancel} disabled={busy} aria-label="Exit selection mode"><CloseIcon /></button></aside>;
+  return <aside className="bulk-action-bar" aria-label="Selected file actions"><strong>{count.toLocaleString()} selected</strong><button className="bulk-select-all" onClick={onToggleAll} disabled={busy}>{allVisibleSelected ? "Clear visible" : "Select visible"}</button><button className="bulk-select-all" onClick={onSelectEntireGallery} disabled={busy}>Select entire gallery</button><span /><button onClick={onDownload} disabled={!count || busy}><DownloadIcon />Download</button><button className="danger" onClick={onDelete} disabled={!count || busy}><TrashIcon />Delete</button><button className="bulk-close" onClick={onCancel} disabled={busy} aria-label="Exit selection mode"><CloseIcon /></button></aside>;
 }
 
 function DownloadPanel({ entry, onCancel }: { entry: DownloadEntry; onCancel: () => void }) {
