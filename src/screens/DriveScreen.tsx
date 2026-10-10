@@ -335,6 +335,8 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
   const [showInsights, setShowInsights] = useState(false);
   const [verificationBusy, setVerificationBusy] = useState(false);
   const [verificationMessage, setVerificationMessage] = useState("");
+  const [faceBusy, setFaceBusy] = useState(false);
+  const [faceMessage, setFaceMessage] = useState("");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [activeAlbumId, setActiveAlbumId] = useState<string>();
   const [galleryMetadata, setGalleryMetadata] = useState<GalleryMetadata>({ favoriteIds: [], verifiedIds: [], albums: [] });
@@ -1094,6 +1096,29 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     void saveGalleryMetadata({ ...galleryMetadata, favoriteIds });
   };
 
+  const tryLocalFaceDetection = async () => {
+    if (faceBusy) return;
+    const target = Array.from(checkedIds).map((id) => items.find((item) => item.id === id)).find((item) => item?.kind === "image");
+    if (!target) { setFaceMessage("Select at least one image in the gallery first."); return; }
+    const Detector = (window as Window & { FaceDetector?: new (options?: { fastMode?: boolean; maxDetectedFaces?: number }) => { detect(source: ImageBitmap): Promise<unknown[]> } }).FaceDetector;
+    if (!Detector) { setFaceMessage("This browser does not support the experimental local face-detection API. iPhone Safari usually does not expose it."); return; }
+    setFaceBusy(true);
+    setFaceMessage("Loading a local thumbnail for face detection…");
+    let bitmap: ImageBitmap | undefined;
+    try {
+      const blob = await telegramDrive.getThumbnail(channel, target);
+      if (!blob) throw new Error("No thumbnail is available for this image.");
+      bitmap = await createImageBitmap(blob);
+      const faces = await new Detector({ fastMode: true, maxDetectedFaces: 20 }).detect(bitmap);
+      setFaceMessage(`Local experiment: detected ${faces.length} face region(s) in “${target.name}”. No face data was uploaded or saved.`);
+    } catch (cause) {
+      setFaceMessage(`Face-detection test failed: ${friendlyError(cause)}`);
+    } finally {
+      bitmap?.close();
+      setFaceBusy(false);
+    }
+  };
+
   const verifySelectedCopies = async (ids: number[]) => {
     if (verificationBusy || !ids.length) return;
     if (ids.length > 10 && !window.confirm(`This will download up to 10 files from Telegram to check their reported sizes. Continue with the first 10 selected files?`)) return;
@@ -1310,7 +1335,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
       {selectionMode && <BulkActionBar count={checkedItems.length} allVisibleSelected={allVisibleChecked} busy={bulkBusy} onToggleAll={toggleAllVisible} onSelectEntireGallery={() => void selectEntireGallery()} onDownload={() => void downloadSelected()} onDelete={() => void deleteSelected()} onCancel={() => { setSelectionMode(false); setCheckedIds(new Set()); }} />}
       {downloadEntry && <DownloadPanel entry={downloadEntry} onCancel={() => { bulkCancelRequested.current = bulkBusy; downloadAbort.current?.abort(); }} />}
       {selected && <Viewer key={selected.id} channel={channel} item={selected} previewLimitBytes={previewLimitBytes} onClose={() => setSelected(undefined)} onPrevious={previousItem ? () => setSelected(previousItem) : undefined} onNext={nextItem ? () => setSelected(nextItem) : undefined} onDownload={() => void downloadItem(selected)} onDelete={() => void deleteItem(selected)} />}
-      {showInsights && <InsightsPanel items={items} favoriteIds={galleryMetadata.favoriteIds} verifiedIds={galleryMetadata.verifiedIds} albums={galleryMetadata.albums} selectedIds={Array.from(checkedIds)} verificationBusy={verificationBusy} verificationMessage={verificationMessage} onVerifySelected={() => void verifySelectedCopies(Array.from(checkedIds))} onClose={() => setShowInsights(false)} onToggleFavorite={toggleFavorite} onCreateAlbum={createAlbum} onOpenItem={(item) => { setSelected(item); setShowInsights(false); }} onOpenAlbum={openAlbum} />}
+      {showInsights && <InsightsPanel items={items} favoriteIds={galleryMetadata.favoriteIds} verifiedIds={galleryMetadata.verifiedIds} albums={galleryMetadata.albums} selectedIds={Array.from(checkedIds)} verificationBusy={verificationBusy} verificationMessage={verificationMessage} faceBusy={faceBusy} faceMessage={faceMessage} onTryFaceDetection={() => void tryLocalFaceDetection()} onVerifySelected={() => void verifySelectedCopies(Array.from(checkedIds))} onClose={() => setShowInsights(false)} onToggleFavorite={toggleFavorite} onCreateAlbum={createAlbum} onOpenItem={(item) => { setSelected(item); setShowInsights(false); }} onOpenAlbum={openAlbum} />}
       {settings && <SettingsPanel account={account} theme={theme} memoryLimitMb={memoryLimitMb} effectiveMemoryMb={effectiveMemoryMb} preventDuplicateNames={preventDuplicateNames} datePrefixUploads={datePrefixUploads} onTheme={onTheme} onMemoryLimit={async (value) => { setMemoryLimitMb(value); await localStore.saveMemoryLimitMb(value); }} onPreventDuplicateNames={async (value) => { setPreventDuplicateNames(value); await localStore.savePreventDuplicateNames(value); }} onDatePrefixUploads={async (value) => { setDatePrefixUploads(value); await localStore.saveDatePrefixUploads(value); }} onClose={() => setSettings(false)} onForget={onForget} onLogOut={onLogOut} />}
     </div>
   );
