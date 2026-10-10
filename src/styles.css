@@ -872,8 +872,6 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
 .viewer-actions .viewer-favorite.active { color:#ffd166; }
 .viewer-actions button:disabled { opacity:.35; }
 .viewer-image-frame img { transition: none; transform-origin:center center; will-change: transform; }
-.viewer-image-frame.zoomed { overflow:auto; display:block; }
-.viewer-image-frame.zoomed img { max-width:none; max-height:none; width:auto; height:auto; min-width:100%; min-height:100%; object-fit:contain; }
 .viewer-nav { opacity:.55; }
 @media (max-width:640px) {
   .viewer { width:100%; height:100dvh; max-height:100dvh; border-radius:0; }
@@ -890,7 +888,7 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
   .viewer-nav { display:none; }
 }
 
-@media (max-width:640px) { .viewer-image-frame { touch-action:none; } .viewer-image-frame.zoomed img { max-width:none; max-height:none; } }
+@media (max-width:640px) { .viewer-image-frame { touch-action:none; } }
 
 
 /* Nested folders and PIN-protected vault */
