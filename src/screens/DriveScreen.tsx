@@ -72,6 +72,10 @@ type SaveFilePickerWindow = Window & {
   showDirectoryPicker?: () => Promise<NativeDirectoryHandle>;
 };
 
+function normalizeVaultPin(value: string): string {
+  return value.trim().replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit))).replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)));
+}
+
 const monthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 const dayKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 const formatMonth = (date: Date) => new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(date);
@@ -1190,8 +1194,9 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     if (!title?.trim()) return;
     if (isVault) {
       let pinConfig = await localStore.getVaultPinConfig();
-      const pin = window.prompt(pinConfig ? "Enter your vault PIN (4–6 digits)" : "Create a vault PIN (4–6 digits)");
-      if (!pin || !/^\d{4,6}$/.test(pin)) { window.alert("PIN must contain 4–6 digits."); return; }
+      const pinInput = window.prompt(pinConfig ? "Enter your vault PIN (4–6 digits)" : "Create a vault PIN (4–6 digits)");
+      const pin = normalizeVaultPin(pinInput || "");
+      if (!/^\d{4,6}$/.test(pin)) { window.alert("PIN must contain 4–6 digits. Use numbers only, with no spaces."); return; }
       const saltBytes = pinConfig ? Uint8Array.from(pinConfig.salt.match(/.{1,2}/g) || [], (v) => parseInt(v, 16)) : crypto.getRandomValues(new Uint8Array(16));
       const iterations = pinConfig?.iterations || 210000;
       const derive = async (value: string) => {
@@ -1200,7 +1205,8 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
         return Array.from(new Uint8Array(bits), (v) => v.toString(16).padStart(2, "0")).join("");
       };
       if (!pinConfig) {
-        if (window.prompt("Confirm your new vault PIN") !== pin) { window.alert("PINs do not match."); return; }
+        const confirmPin = normalizeVaultPin(window.prompt("Confirm your new vault PIN") || "");
+        if (confirmPin !== pin) { window.alert("PINs do not match."); return; }
         pinConfig = { salt: Array.from(saltBytes, (v) => v.toString(16).padStart(2, "0")).join(""), hash: await derive(pin), iterations };
         await localStore.saveVaultPinConfig(pinConfig);
       } else if (await derive(pin) !== pinConfig.hash) { window.alert("Incorrect vault PIN."); return; }
@@ -1216,8 +1222,8 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     if (folderIsVaultProtected(folder) && !vaultUnlocked) {
       const pinConfig = await localStore.getVaultPinConfig();
       if (!pinConfig) { window.alert("Create a vault PIN first."); return; }
-      const pin = window.prompt("Enter your vault PIN");
-      if (!pin || !/^\d{4,6}$/.test(pin)) return;
+      const pin = normalizeVaultPin(window.prompt("Enter your vault PIN") || "");
+      if (!/^\d{4,6}$/.test(pin)) { window.alert("PIN must contain 4–6 digits. Use numbers only, with no spaces."); return; }
       const saltBytes = Uint8Array.from(pinConfig.salt.match(/.{1,2}/g) || [], (v) => parseInt(v, 16));
       const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin), "PBKDF2", false, ["deriveBits"]);
       const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: saltBytes.buffer as ArrayBuffer, iterations: pinConfig.iterations, hash: "SHA-256" }, key, 256);
