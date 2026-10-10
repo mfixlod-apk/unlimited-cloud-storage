@@ -342,6 +342,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
   const [faceMessage, setFaceMessage] = useState("");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [activeAlbumId, setActiveAlbumId] = useState<string>();
+  const [vaultUnlocked, setVaultUnlocked] = useState(false);
   const [galleryMetadata, setGalleryMetadata] = useState<GalleryMetadata>({ favoriteIds: [], verifiedIds: [], albums: [] });
   const [uploadSnapshot, setUploadSnapshot] = useState<UploadSnapshot>(emptyUploadSnapshot);
   const [showUploadPanel, setShowUploadPanel] = useState(false);
@@ -1152,6 +1153,68 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     void saveGalleryMetadata({ ...galleryMetadata, albums: [album, ...galleryMetadata.albums] });
   };
 
+
+  const createFolder = async (isVault = false) => {
+    const title = window.prompt(isVault ? "Name your vault folder" : "Name the new folder");
+    if (!title?.trim()) return;
+    if (isVault) {
+      let pinConfig = await localStore.getVaultPinConfig();
+      const pin = window.prompt(pinConfig ? "Enter your vault PIN (4–6 digits)" : "Create a vault PIN (4–6 digits)");
+      if (!pin || !/^\\d{4,6}$/.test(pin)) { window.alert("PIN must contain 4–6 digits."); return; }
+      const saltBytes = pinConfig ? Uint8Array.from(pinConfig.salt.match(/.{1,2}/g) || [], (v) => parseInt(v, 16)) : crypto.getRandomValues(new Uint8Array(16));
+      const iterations = pinConfig?.iterations || 210000;
+      const derive = async (value: string) => {
+        const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(value), "PBKDF2", false, ["deriveBits"]);
+        const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: saltBytes.buffer as ArrayBuffer, iterations, hash: "SHA-256" }, key, 256);
+        return Array.from(new Uint8Array(bits), (v) => v.toString(16).padStart(2, "0")).join("");
+      };
+      if (!pinConfig) {
+        if (window.prompt("Confirm your new vault PIN") !== pin) { window.alert("PINs do not match."); return; }
+        pinConfig = { salt: Array.from(saltBytes, (v) => v.toString(16).padStart(2, "0")).join(""), hash: await derive(pin), iterations };
+        await localStore.saveVaultPinConfig(pinConfig);
+      } else if (await derive(pin) !== pinConfig.hash) { window.alert("Incorrect vault PIN."); return; }
+      setVaultUnlocked(true);
+    }
+    const folder: SavedAlbum = { id: `folder-${crypto.randomUUID()}`, title: title.trim(), itemIds: [], createdAt: Date.now(), parentId: activeAlbumId, isVault };
+    await saveGalleryMetadata({ ...galleryMetadata, albums: [folder, ...galleryMetadata.albums] });
+    setActiveAlbumId(folder.id);
+    setFavoritesOnly(false);
+  };
+
+  const openFolder = async (folder: SavedAlbum) => {
+    if (folder.isVault) {
+      const pinConfig = await localStore.getVaultPinConfig();
+      if (!pinConfig) { window.alert("Create a vault PIN first."); return; }
+      const pin = window.prompt("Enter your vault PIN");
+      if (!pin || !/^\\d{4,6}$/.test(pin)) return;
+      const saltBytes = Uint8Array.from(pinConfig.salt.match(/.{1,2}/g) || [], (v) => parseInt(v, 16));
+      const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin), "PBKDF2", false, ["deriveBits"]);
+      const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: saltBytes.buffer as ArrayBuffer, iterations: pinConfig.iterations, hash: "SHA-256" }, key, 256);
+      const hash = Array.from(new Uint8Array(bits), (v) => v.toString(16).padStart(2, "0")).join("");
+      if (hash !== pinConfig.hash) { window.alert("Incorrect vault PIN."); return; }
+      setVaultUnlocked(true);
+    }
+    setActiveAlbumId(folder.id);
+    setFavoritesOnly(false);
+    setFilter("all");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const addSelectedToFolder = async () => {
+    const folders = galleryMetadata.albums;
+    if (!checkedIds.size || !folders.length) { window.alert("Select files and create a folder first."); return; }
+    const choices = folders.map((folder, index) => `${index + 1}. ${folder.title}`).join("\\n");
+    const answer = window.prompt(`Move selected files to which folder?\\n${choices}\\nEnter the folder number:`);
+    const target = folders[Number(answer) - 1];
+    if (!target) return;
+    if (target.isVault && !vaultUnlocked) { await openFolder(target); return; }
+    const ids = Array.from(checkedIds);
+    const albums = galleryMetadata.albums.map((folder) => folder.id === target.id ? { ...folder, itemIds: Array.from(new Set([...folder.itemIds, ...ids])) } : { ...folder, itemIds: folder.itemIds.filter((id) => !ids.includes(id)) });
+    await saveGalleryMetadata({ ...galleryMetadata, albums });
+    setCheckedIds(new Set());
+    setSelectionMode(false);
+  };
+
   const openAlbum = (album: SavedAlbum) => {
     setActiveAlbumId(album.id);
     setFavoritesOnly(false);
@@ -1323,6 +1386,11 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
           <div className="header-actions"><button className={`secondary-button month-toggle ${groupByMonth ? "active" : ""}`} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth} aria-label="Group files by month" title="Group files by month"><CalendarIcon /><span>{groupByMonth ? "Grouped" : "Group by month"}</span></button><button className="secondary-button sort-toggle" aria-label={`Order: ${sortOrder === "newest" ? "newest first" : "oldest first"}`} title={sortOrder === "newest" ? "Newest first" : "Oldest first"} onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon /><span>{sortOrder === "newest" ? "Newest first" : "Oldest first"}</span></button><button className={`secondary-button ${favoritesOnly ? "active" : ""}`} onClick={() => { setFavoritesOnly((value) => !value); setActiveAlbumId(undefined); }} aria-pressed={favoritesOnly}>★ Favorites</button><button className="secondary-button" onClick={() => setShowInsights(true)}>Insights</button><button className={`secondary-button select-toggle ${selectionMode ? "active" : ""}`} onClick={toggleSelectionMode} aria-pressed={selectionMode}><CheckIcon /><span>{selectionMode ? "Cancel" : "Select"}</span></button><label className="search-box"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label><button className="primary-button" onClick={openSync} aria-label={queueHasWork ? "Add more files to the upload queue" : "Sync files now"}><UploadIcon />{queueHasWork ? "Add files" : "Sync now"}</button></div>
         </header>
         <div className="mobile-tabs">{tabs.map(({ value, label }) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div>
+        <section className="folder-toolbar" aria-label="Folders">
+          <div className="folder-toolbar-title"><strong>{activeAlbumId ? (galleryMetadata.albums.find((entry) => entry.id === activeAlbumId)?.title || "Folder") : "My folders"}</strong>{activeAlbumId && <button className="secondary-button" onClick={() => { const current = galleryMetadata.albums.find((entry) => entry.id === activeAlbumId); setActiveAlbumId(current?.parentId); setVaultUnlocked(false); }}>← Back</button>}</div>
+          <div className="folder-toolbar-actions"><button className="secondary-button" onClick={() => void createFolder(false)}>＋ New folder</button><button className="secondary-button" onClick={() => void createFolder(true)}>🔒 New vault</button>{selectionMode && <button className="secondary-button" onClick={() => void addSelectedToFolder()}>Move selected</button>}</div>
+          <div className="folder-list">{galleryMetadata.albums.filter((folder) => folder.parentId === activeAlbumId).map((folder) => <button key={folder.id} className={folder.isVault ? "folder-tile vault-folder" : "folder-tile"} onClick={() => void openFolder(folder)}><span>{folder.isVault ? "🔒" : "📁"}</span><strong>{folder.title}</strong><small>{folder.itemIds.length} items</small></button>)}</div>
+        </section>
         <input ref={mediaInput} type="file" accept="image/*,video/*" multiple hidden onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void handleFiles(event.target.files); event.target.value = ""; }} />
         <input ref={fileInput} type="file" multiple hidden onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void handleFiles(event.target.files); event.target.value = ""; }} />
         <input ref={directoryInput} type="file" multiple hidden {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void handleFiles(event.target.files); event.target.value = ""; }} />
