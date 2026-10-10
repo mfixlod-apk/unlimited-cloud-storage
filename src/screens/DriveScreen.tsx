@@ -1168,7 +1168,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
 
   const labelSelectedFiles = async () => {
     const ids = Array.from(checkedIds);
-    if (!ids.length) { window.alert("Select one or more files first."); return; }
+    if (ids.length !== 1) { window.alert("To give a document its own name and keywords, select exactly one file."); return; }
     const first = items.find((item) => item.id === ids[0]);
     const existing = first ? galleryMetadata.fileLabels?.[first.id] : undefined;
     const title = window.prompt("Display name (e.g. Passport scan or Important invoice). Leave blank to keep the original name:", existing?.title || "");
