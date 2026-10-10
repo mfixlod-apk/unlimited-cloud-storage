@@ -315,7 +315,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
   const [items, setItems] = useState<CloudItem[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
-  const [groupByMonth, setGroupByMonth] = useState(false);
+  const [groupByMonth, setGroupByMonth] = useState(true);
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
   const [memoryLimitMb, setMemoryLimitMb] = useState(1024);
   const [preventDuplicateNames, setPreventDuplicateNames] = useState(false);
