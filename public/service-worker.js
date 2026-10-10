@@ -1,4 +1,4 @@
-const CACHE_NAME = "unlimited-cloud-storage-shell-v38";
+const CACHE_NAME = "unlimited-cloud-storage-shell-v39";
 const DEVELOPMENT = new URL(self.location.href).searchParams.has("dev");
 const STREAM_PATH = "/__telegram_stream__/";
 const STREAM_CHUNK_SIZE = 1024 * 1024;
