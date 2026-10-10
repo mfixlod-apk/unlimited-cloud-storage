@@ -434,7 +434,7 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
 .viewer header button { color: #ddd; background: rgba(255,255,255,.09); }
 .viewer header button:hover { background: rgba(255,255,255,.16); }
 .viewer header button.danger:hover { color: #ff8c7d; }
-.viewer-content { --viewer-pad-y: 18px; --viewer-pad-x: 68px; position: relative; height: calc(100% - 68px); min-height: 0; display: grid; place-items: center; overflow: hidden; padding: var(--viewer-pad-y) var(--viewer-pad-x); }
+.viewer-content { touch-action: pan-y; --viewer-pad-y: 18px; --viewer-pad-x: 68px; position: relative; height: calc(100% - 68px); min-height: 0; display: grid; place-items: center; overflow: hidden; padding: var(--viewer-pad-y) var(--viewer-pad-x); }
 .viewer-content img, .viewer-content video { max-width: 100%; max-height: 100%; object-fit: contain; }
 .viewer-image-frame { position: absolute; inset: var(--viewer-pad-y) var(--viewer-pad-x); display: grid; min-width: 0; min-height: 0; place-items: center; overflow: hidden; }
 .viewer-image-frame img { display: block; width: auto; height: auto; max-width: 100%; max-height: min(716px, calc(100vh - 154px)); max-height: min(716px, calc(100dvh - 154px)); object-fit: contain; }
