@@ -1576,7 +1576,7 @@ function MemoryGallery({ items, channel, fileLabels, groupByMonth, sortOrder, me
       const isLastChunk = groupIndex === groups.length - 1 && index === chunkCount - 1;
       const placeholderCount = hasMore && isLastChunk ? (layout.columns - chunk.length % layout.columns) % layout.columns : 0;
       const estimatedHeight = Math.ceil((chunk.length + placeholderCount) / layout.columns) * layout.rowHeight;
-      return <VirtualGalleryChunk key={`${group.key}:${index}`} items={chunk} channel={channel} paused={paused} selectionMode={selectionMode} selectedIds={selectedIds} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} placeholderCount={placeholderCount} initiallyActive={currentIndex < 2} estimatedHeight={estimatedHeight} prefetchPx={prefetchPx} onOpen={onOpen} onToggleSelection={onToggleSelection} onDownload={onDownload} onDelete={onDelete} />;
+      return <VirtualGalleryChunk key={`${group.key}:${index}`} items={chunk} fileLabels={fileLabels} channel={channel} paused={paused} selectionMode={selectionMode} selectedIds={selectedIds} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} placeholderCount={placeholderCount} initiallyActive={currentIndex < 2} estimatedHeight={estimatedHeight} prefetchPx={prefetchPx} onOpen={onOpen} onToggleSelection={onToggleSelection} onDownload={onDownload} onDelete={onDelete} />;
     })}</div></section>;
   })}</div>;
 }
@@ -1589,8 +1589,9 @@ const estimateColumns = () => {
 };
 const estimateRowHeight = () => window.innerWidth <= 580 ? 190 : 230;
 
-function VirtualGalleryChunk({ items, channel, paused, selectionMode, selectedIds, favoriteIds, onToggleFavorite, placeholderCount, initiallyActive, estimatedHeight, prefetchPx, onOpen, onToggleSelection, onDownload, onDelete }: {
+function VirtualGalleryChunk({ items, fileLabels, channel, paused, selectionMode, selectedIds, favoriteIds, onToggleFavorite, placeholderCount, initiallyActive, estimatedHeight, prefetchPx, onOpen, onToggleSelection, onDownload, onDelete }: {
   items: CloudItem[];
+  fileLabels: Record<number, { title: string; tags: string[]; note?: string }>;
   channel: CloudChannel;
   paused: boolean;
   selectionMode: boolean;
