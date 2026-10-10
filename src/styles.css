@@ -889,3 +889,5 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
   .viewer-image-frame img { max-height:calc(100dvh - 64px); max-width:100vw; }
   .viewer-nav { display:none; }
 }
+
+@media (max-width:640px) { .viewer-image-frame { touch-action:none; } .viewer-image-frame.zoomed img { max-width:none; max-height:none; } }
