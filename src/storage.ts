@@ -116,6 +116,10 @@ export const localStore = {
     return value || { favoriteIds: [], verifiedIds: [], albums: [] };
   }),
   saveGalleryMetadata: (channelId: string, value: GalleryMetadata) => dbPromise.then((db) => db.put("config", value, `galleryMetadata:${channelId}`)),
+  getSecurityConfig: () => dbPromise.then(async (db) => (await db.get("config", "securityConfig")) as { salt: string; hash: string; iterations: number; enabled: boolean } | undefined),
+  saveSecurityConfig: (value: { salt: string; hash: string; iterations: number; enabled: boolean }) => dbPromise.then((db) => db.put("config", value, "securityConfig")),
+  getGooglePhotosClientId: () => dbPromise.then(async (db) => (await db.get("config", "googlePhotosClientId")) as string | undefined),
+  saveGooglePhotosClientId: (value: string) => dbPromise.then((db) => db.put("config", value, "googlePhotosClientId")),
   getTheme: () => dbPromise.then(async (db) => {
     const value = await db.get("config", "theme");
     return value === "dark" || value === "light" ? value : undefined;
