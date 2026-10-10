@@ -31,7 +31,7 @@ export function InsightsPanel({ items, favoriteIds, verifiedIds, albums, selecte
   const memories = useMemo(() => {
     const now = new Date();
     return items.filter((item) => {
-      const date = new Date(item.date);
+      const date = item.date;
       return date.getFullYear() < now.getFullYear() && dayKey(date) === dayKey(now);
     }).sort((a, b) => b.date.getTime() - a.date.getTime()).slice(0, 8);
   }, [items]);
