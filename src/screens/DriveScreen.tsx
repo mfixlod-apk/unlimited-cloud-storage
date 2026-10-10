@@ -27,6 +27,8 @@ import {
   type UploadBatchRecord,
   type UploadQueueRecord,
   type UploadQueueStatus,
+  type GalleryMetadata,
+  type SavedAlbum,
 } from "../storage";
 import {
   telegramDrive,
@@ -36,6 +38,7 @@ import {
   type ItemKind,
 } from "../telegram";
 import { Brand } from "./Brand";
+import { InsightsPanel } from "./InsightsPanel";
 import { formatDate, formatSize, friendlyError, userName, type Theme } from "./shared";
 
 type Filter = "all" | ItemKind;
@@ -329,6 +332,10 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
   const [checkedIds, setCheckedIds] = useState<Set<number>>(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [showInsights, setShowInsights] = useState(false);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [activeAlbumId, setActiveAlbumId] = useState<string>();
+  const [galleryMetadata, setGalleryMetadata] = useState<GalleryMetadata>({ favoriteIds: [], verifiedIds: [], albums: [] });
   const [uploadSnapshot, setUploadSnapshot] = useState<UploadSnapshot>(emptyUploadSnapshot);
   const [showUploadPanel, setShowUploadPanel] = useState(false);
   const [showSyncChooser, setShowSyncChooser] = useState(false);
@@ -389,6 +396,15 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
   }, [channel, sortOrder]);
 
   useEffect(() => {
+    let active = true;
+    setGalleryMetadata({ favoriteIds: [], verifiedIds: [], albums: [] });
+    setFavoritesOnly(false);
+    setActiveAlbumId(undefined);
+    void localStore.getGalleryMetadata(channel.id).then((metadata) => { if (active) setGalleryMetadata(metadata); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [channel.id]);
+
+  useEffect(() => {
     setItems([]);
     setSelectionMode(false);
     setCheckedIds(new Set());
@@ -432,8 +448,11 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
 
   const visibleItems = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
-    return items.filter((item) => (filter === "all" || item.kind === filter) && (!query || item.name.toLocaleLowerCase().includes(query)));
-  }, [items, filter, search]);
+    const favoriteSet = new Set(galleryMetadata.favoriteIds);
+    const album = galleryMetadata.albums.find((entry) => entry.id === activeAlbumId);
+    const albumSet = album ? new Set(album.itemIds) : undefined;
+    return items.filter((item) => (filter === "all" || item.kind === filter) && (!query || item.name.toLocaleLowerCase().includes(query)) && (!favoritesOnly || favoriteSet.has(item.id)) && (!albumSet || albumSet.has(item.id)));
+  }, [items, filter, search, galleryMetadata, favoritesOnly, activeAlbumId]);
 
   const publishUploadSnapshot = useCallback((force = false) => {
     const now = Date.now();
@@ -1061,6 +1080,31 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     });
   };
 
+  const saveGalleryMetadata = async (next: GalleryMetadata) => {
+    setGalleryMetadata(next);
+    await localStore.saveGalleryMetadata(channel.id, next);
+  };
+
+  const toggleFavorite = (item: CloudItem) => {
+    const favoriteIds = galleryMetadata.favoriteIds.includes(item.id)
+      ? galleryMetadata.favoriteIds.filter((id) => id !== item.id)
+      : [...galleryMetadata.favoriteIds, item.id];
+    void saveGalleryMetadata({ ...galleryMetadata, favoriteIds });
+  };
+
+  const createAlbum = (title: string, itemIds: number[]) => {
+    const album: SavedAlbum = { id: `album-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, title, itemIds: Array.from(new Set(itemIds)), createdAt: Date.now() };
+    void saveGalleryMetadata({ ...galleryMetadata, albums: [album, ...galleryMetadata.albums] });
+  };
+
+  const openAlbum = (album: SavedAlbum) => {
+    setActiveAlbumId(album.id);
+    setFavoritesOnly(false);
+    setFilter("all");
+    setShowInsights(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const toggleChecked = (item: CloudItem) => {
     setCheckedIds((current) => {
       const next = new Set(current);
@@ -1217,11 +1261,11 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
           <div className="mobile-app-bar"><button className="mobile-wordmark" onClick={onHome} aria-label="Go to home page"><CloudIcon />Unlimited Cloud Storage</button><div className="mobile-app-actions"><button className="primary-button mobile-upload" onClick={openSync} aria-label={queueHasWork ? "Add more files to the upload queue" : "Sync files now"}><UploadIcon /><span>{queueHasWork ? "Add files" : "Sync now"}</span></button><button className="mobile-settings" onClick={() => setSettings(true)} aria-label="Open settings"><SettingsIcon /></button></div></div>
           <div className="mobile-title-row"><div className="mobile-title-copy"><h1>{tabs.find((tab) => tab.value === filter)?.label}</h1><p>{visibleItems.length}{hasMore ? "+" : ""} {visibleItems.length === 1 ? "item" : "items"}</p></div><div className="mobile-channel-control"><ChannelSwitcher channel={channel} channels={channels} showPublic={showPublicChannels} onShowPublic={onShowPublicChannels} onSelect={onSelectChannel} onCreate={onCreateChannel} onRename={onRenameChannel} onDelete={deleteStorageChannel} onManage={onChangeChannel} /></div></div>
           <label className="search-box mobile-search"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label>
-          <div className="mobile-tools"><button className={groupByMonth ? "active" : ""} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth}><CalendarIcon />{groupByMonth ? "Grouped" : "By month"}</button><button onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon />{sortOrder === "newest" ? "Newest" : "Oldest"}</button><button className={selectionMode ? "active" : ""} onClick={toggleSelectionMode} aria-pressed={selectionMode}><CheckIcon />{selectionMode ? "Cancel" : "Select"}</button></div>
+          <div className="mobile-tools"><button className={groupByMonth ? "active" : ""} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth}><CalendarIcon />{groupByMonth ? "Grouped" : "By month"}</button><button onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon />{sortOrder === "newest" ? "Newest" : "Oldest"}</button><button className={favoritesOnly ? "active" : ""} onClick={() => { setFavoritesOnly((value) => !value); setActiveAlbumId(undefined); }} aria-pressed={favoritesOnly}>★ Favorites</button><button onClick={() => setShowInsights(true)}>Insights</button><button className={selectionMode ? "active" : ""} onClick={toggleSelectionMode} aria-pressed={selectionMode}><CheckIcon />{selectionMode ? "Cancel" : "Select"}</button></div>
         </header>
         <header className="drive-header desktop-drive-header">
           <div><h1>{tabs.find((tab) => tab.value === filter)?.label}</h1><p>{channel.title} <span>·</span> {visibleItems.length} {visibleItems.length === 1 ? "item" : "items"}</p></div>
-          <div className="header-actions"><button className={`secondary-button month-toggle ${groupByMonth ? "active" : ""}`} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth} aria-label="Group files by month" title="Group files by month"><CalendarIcon /><span>{groupByMonth ? "Grouped" : "Group by month"}</span></button><button className="secondary-button sort-toggle" aria-label={`Order: ${sortOrder === "newest" ? "newest first" : "oldest first"}`} title={sortOrder === "newest" ? "Newest first" : "Oldest first"} onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon /><span>{sortOrder === "newest" ? "Newest first" : "Oldest first"}</span></button><button className={`secondary-button select-toggle ${selectionMode ? "active" : ""}`} onClick={toggleSelectionMode} aria-pressed={selectionMode}><CheckIcon /><span>{selectionMode ? "Cancel" : "Select"}</span></button><label className="search-box"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label><button className="primary-button" onClick={openSync} aria-label={queueHasWork ? "Add more files to the upload queue" : "Sync files now"}><UploadIcon />{queueHasWork ? "Add files" : "Sync now"}</button></div>
+          <div className="header-actions"><button className={`secondary-button month-toggle ${groupByMonth ? "active" : ""}`} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth} aria-label="Group files by month" title="Group files by month"><CalendarIcon /><span>{groupByMonth ? "Grouped" : "Group by month"}</span></button><button className="secondary-button sort-toggle" aria-label={`Order: ${sortOrder === "newest" ? "newest first" : "oldest first"}`} title={sortOrder === "newest" ? "Newest first" : "Oldest first"} onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon /><span>{sortOrder === "newest" ? "Newest first" : "Oldest first"}</span></button><button className={`secondary-button ${favoritesOnly ? "active" : ""}`} onClick={() => { setFavoritesOnly((value) => !value); setActiveAlbumId(undefined); }} aria-pressed={favoritesOnly}>★ Favorites</button><button className="secondary-button" onClick={() => setShowInsights(true)}>Insights</button><button className={`secondary-button select-toggle ${selectionMode ? "active" : ""}`} onClick={toggleSelectionMode} aria-pressed={selectionMode}><CheckIcon /><span>{selectionMode ? "Cancel" : "Select"}</span></button><label className="search-box"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label><button className="primary-button" onClick={openSync} aria-label={queueHasWork ? "Add more files to the upload queue" : "Sync files now"}><UploadIcon />{queueHasWork ? "Add files" : "Sync now"}</button></div>
         </header>
         <div className="mobile-tabs">{tabs.map(({ value, label }) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div>
         <input ref={mediaInput} type="file" accept="image/*,video/*" multiple hidden onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void handleFiles(event.target.files); event.target.value = ""; }} />
@@ -1229,7 +1273,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
         <input ref={directoryInput} type="file" multiple hidden {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} onChange={(event: ChangeEvent<HTMLInputElement>) => { if (event.target.files) void handleFiles(event.target.files); event.target.value = ""; }} />
         {error && <div className="error-banner drive-error" role="alert"><span>{error}</span><button onClick={() => setError("")}><CloseIcon /></button></div>}
         {loading ? <GallerySkeleton /> : visibleItems.length ? (
-          <MemoryGallery items={visibleItems} channel={channel} groupByMonth={groupByMonth} sortOrder={sortOrder} memoryLimitMb={effectiveMemoryMb} hasMore={hasMore} paused={Boolean(selected)} selectionMode={selectionMode} selectedIds={checkedIds} onOpen={setSelected} onToggleSelection={toggleChecked} onDownload={downloadItem} onDelete={deleteItem} />
+          <MemoryGallery items={visibleItems} channel={channel} groupByMonth={groupByMonth} sortOrder={sortOrder} memoryLimitMb={effectiveMemoryMb} hasMore={hasMore} paused={Boolean(selected)} selectionMode={selectionMode} selectedIds={checkedIds} favoriteIds={new Set(galleryMetadata.favoriteIds)} onToggleFavorite={toggleFavorite} onOpen={setSelected} onToggleSelection={toggleChecked} onDownload={downloadItem} onDelete={deleteItem} />
         ) : <EmptyState hasItems={items.length > 0} onUpload={openSync} />}
         <div ref={sentinel} className="scroll-sentinel">{loadingMore && <><span className="spinner" />{search.trim() ? "Searching older files…" : "Loading older files…"}</>}{!hasMore && items.length > 0 && <span>You've reached the beginning.</span>}</div>
       </main>
@@ -1239,6 +1283,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
       {selectionMode && <BulkActionBar count={checkedItems.length} allVisibleSelected={allVisibleChecked} busy={bulkBusy} onToggleAll={toggleAllVisible} onSelectEntireGallery={() => void selectEntireGallery()} onDownload={() => void downloadSelected()} onDelete={() => void deleteSelected()} onCancel={() => { setSelectionMode(false); setCheckedIds(new Set()); }} />}
       {downloadEntry && <DownloadPanel entry={downloadEntry} onCancel={() => { bulkCancelRequested.current = bulkBusy; downloadAbort.current?.abort(); }} />}
       {selected && <Viewer key={selected.id} channel={channel} item={selected} previewLimitBytes={previewLimitBytes} onClose={() => setSelected(undefined)} onPrevious={previousItem ? () => setSelected(previousItem) : undefined} onNext={nextItem ? () => setSelected(nextItem) : undefined} onDownload={() => void downloadItem(selected)} onDelete={() => void deleteItem(selected)} />}
+      {showInsights && <InsightsPanel items={items} favoriteIds={galleryMetadata.favoriteIds} verifiedIds={galleryMetadata.verifiedIds} albums={galleryMetadata.albums} selectedIds={Array.from(checkedIds)} onClose={() => setShowInsights(false)} onToggleFavorite={toggleFavorite} onCreateAlbum={createAlbum} onOpenItem={(item) => { setSelected(item); setShowInsights(false); }} onOpenAlbum={openAlbum} />}
       {settings && <SettingsPanel account={account} theme={theme} memoryLimitMb={memoryLimitMb} effectiveMemoryMb={effectiveMemoryMb} preventDuplicateNames={preventDuplicateNames} datePrefixUploads={datePrefixUploads} onTheme={onTheme} onMemoryLimit={async (value) => { setMemoryLimitMb(value); await localStore.saveMemoryLimitMb(value); }} onPreventDuplicateNames={async (value) => { setPreventDuplicateNames(value); await localStore.savePreventDuplicateNames(value); }} onDatePrefixUploads={async (value) => { setDatePrefixUploads(value); await localStore.saveDatePrefixUploads(value); }} onClose={() => setSettings(false)} onForget={onForget} onLogOut={onLogOut} />}
     </div>
   );
