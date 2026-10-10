@@ -1082,10 +1082,6 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
 
   const selectEntireGallery = async () => {
     if (bulkBusy) return;
-    if (!hasMore) {
-      setCheckedIds(new Set(visibleItems.map((item) => item.id)));
-      return;
-    }
     setBulkBusy(true);
     setLoadingMore(true);
     setError("");
@@ -1093,24 +1089,26 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
       const requestedKey = `${channel.id}:${sortOrder}`;
       const allItems = [...items];
       let nextOffset = offsetRef.current;
-      let more = true;
-      while (more) {
+      let more = hasMore;
+      let pagesRead = 0;
+      while (more && pagesRead < 10000) {
+        const previousOffset = nextOffset;
         const page = await telegramDrive.getHistory(channel, nextOffset, 100, sortOrder === "oldest");
         if (activeHistoryKeyRef.current !== requestedKey) return;
         for (const item of page.items) {
           if (!allItems.some((existing) => existing.id === item.id)) allItems.push(item);
         }
         nextOffset = page.nextOffset;
-        more = page.hasMore;
+        more = page.hasMore && nextOffset !== previousOffset;
+        pagesRead += 1;
       }
+      if (more) throw new Error("Stopped because Telegram did not advance to the next page. Please try again.");
       setItems(allItems);
       offsetRef.current = nextOffset;
       setHasMore(false);
-      const query = search.trim().toLocaleLowerCase();
-      const matches = allItems.filter((item) => (filter === "all" || item.kind === filter) && (!query || item.name.toLocaleLowerCase().includes(query)));
-      setCheckedIds(new Set(matches.map((item) => item.id)));
+      setCheckedIds(new Set(allItems.map((item) => item.id)));
     } catch (cause) {
-      setError(`Could not load the entire gallery: ${friendlyError(cause)}`);
+      setError(`Could not select the entire gallery: ${friendlyError(cause)}`);
     } finally {
       setBulkBusy(false);
       setLoadingMore(false);
