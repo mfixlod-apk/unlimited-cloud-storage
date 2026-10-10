@@ -802,3 +802,23 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
   .viewer-nav.next { right: 8px; }
   .viewer-loading-preview img { max-width: 100%; }
 }
+
+
+/* Second pass: make the gallery feel like a photo library, not file cards. */
+@media (min-width: 641px) {
+  .gallery { grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 12px; }
+  .thumbnail { aspect-ratio: 1 / 1; border-radius: 10px; }
+  .media-card { border-radius: 10px; }
+}
+@media (max-width: 640px) {
+  .month-groups { gap: 25px; }
+  .month-group > h2 { margin: 0 2px 10px; font-size: 18px; }
+  .gallery { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; }
+  .media-card { overflow: hidden; border-radius: 2px; }
+  .thumbnail { aspect-ratio: 1 / 1; border-radius: 2px; background: var(--thumbnail); }
+  .media-info { padding: 4px 2px 5px; gap: 2px; }
+  .media-info strong { font-size: 10px; font-weight: 500; }
+  .media-info small { font-size: 9px; }
+  .media-card .card-menu { top: 4px; right: 4px; }
+  .media-card .card-actions { top: 4px; right: 4px; }
+}
