@@ -9,6 +9,9 @@ type Props = {
   verifiedIds: number[];
   albums: SavedAlbum[];
   selectedIds: number[];
+  verificationBusy: boolean;
+  verificationMessage: string;
+  onVerifySelected: () => void;
   onClose: () => void;
   onToggleFavorite: (item: CloudItem) => void;
   onCreateAlbum: (title: string, itemIds: number[]) => void;
@@ -19,7 +22,7 @@ type Props = {
 const dayKey = (date: Date) => `${date.getMonth()}-${date.getDate()}`;
 const normalizeName = (name: string) => name.toLocaleLowerCase().replace(/\s*\(\d+\)(?=\.[^.]+$)/, "").replace(/[-_ ]copy(?=\.[^.]+$)/, "");
 
-export function InsightsPanel({ items, favoriteIds, verifiedIds, albums, selectedIds, onClose, onToggleFavorite, onCreateAlbum, onOpenItem, onOpenAlbum }: Props) {
+export function InsightsPanel({ items, favoriteIds, verifiedIds, albums, selectedIds, verificationBusy, verificationMessage, onVerifySelected, onClose, onToggleFavorite, onCreateAlbum, onOpenItem, onOpenAlbum }: Props) {
   const [albumTitle, setAlbumTitle] = useState("");
   const favorites = useMemo(() => items.filter((item) => favoriteIds.includes(item.id)), [items, favoriteIds]);
   const memories = useMemo(() => {
@@ -51,8 +54,9 @@ export function InsightsPanel({ items, favoriteIds, verifiedIds, albums, selecte
         <article><strong>{items.length.toLocaleString()}</strong><span>Loaded files</span></article>
         <article><strong>{formatSize(totalBytes)}</strong><span>Known file sizes</span></article>
         <article><strong>{favoriteIds.length.toLocaleString()}</strong><span>Favorites saved</span></article>
-        <article><strong>{verifiedIds.length.toLocaleString()}</strong><span>Marked verified</span></article>
+        <article><strong>{verifiedIds.length.toLocaleString()}</strong><span>Size-verified</span></article>
       </div>
+      <section className="insights-section"><h3>Backup integrity check</h3><p>Download up to 10 selected Telegram files and compare their downloaded size with the size recorded in Telegram. This confirms basic readability and size, not a byte-for-byte match with the original iPhone file.</p><button className="insights-verify-button" onClick={onVerifySelected} disabled={!selectedIds.length || verificationBusy}>{verificationBusy ? "Checking…" : `Check selected files (${Math.min(selectedIds.length, 10)} max)`}</button>{verificationMessage && <p className="insights-verification-message" role="status">{verificationMessage}</p>}</section>
       <section className="insights-section"><h3>Albums</h3><p>Create an album from the items you selected in the gallery.</p><form className="insights-create-album" onSubmit={(event) => { event.preventDefault(); const title = albumTitle.trim(); if (!title || !selectedIds.length) return; onCreateAlbum(title, selectedIds); setAlbumTitle(""); }}><input value={albumTitle} onChange={(event) => setAlbumTitle(event.target.value)} placeholder="Album name" maxLength={60} aria-label="Album name" /><button type="submit" disabled={!albumTitle.trim() || !selectedIds.length}>Create from {selectedIds.length} selected</button></form>{albums.length ? <div className="insights-albums">{albums.map((album) => <button key={album.id} onClick={() => onOpenAlbum(album)}><strong>{album.title}</strong><span>{album.itemIds.length} items</span></button>)}</div> : <p className="insights-muted">No albums yet. Select files in the gallery first.</p>}</section>
       <section className="insights-section"><h3>Memories from this day</h3>{memories.length ? <div className="insights-list">{memories.map((item) => <button key={item.id} onClick={() => onOpenItem(item)}><span><strong>{item.name}</strong><small>{formatDate(item.date)}</small></span><small>{formatSize(item.size)}</small></button>)}</div> : <p className="insights-muted">No older files from today’s date are in the currently loaded history.</p>}</section>
       <section className="insights-section"><h3>Possible duplicates</h3><p>These are candidates with matching file size and similar names, not confirmed byte-for-byte duplicates. Nothing is deleted automatically.</p>{duplicates.length ? <div className="insights-list">{duplicates.map((item) => <button key={item.id} onClick={() => onOpenItem(item)}><span><strong>{item.name}</strong><small>{formatDate(item.date)}</small></span><small>{formatSize(item.size)}</small></button>)}</div> : <p className="insights-muted">No likely duplicates found in the loaded items.</p>}</section>
