@@ -1556,13 +1556,14 @@ function EmptyState({ hasItems, onUpload }: { hasItems: boolean; onUpload: () =>
   return <div className="empty-state">{hasItems ? <SearchIcon /> : <CloudIcon />}<h2>{hasItems ? "No matches found" : "Your cloud is ready"}</h2><p>{hasItems ? "Try a different search or file type." : "Sync your first files. They will appear here and in your private Telegram channel."}</p>{!hasItems && <button className="primary-button" onClick={onUpload}><UploadIcon />Sync now</button>}</div>;
 }
 
-function SyncChooser({ supportsDirectory, pendingCount, totalCount, onPhotos, onFiles, onDirectory, onClose }: {
+function SyncChooser({ supportsDirectory, pendingCount, totalCount, onPhotos, onFiles, onDirectory, onGooglePhotos, onClose }: {
   supportsDirectory: boolean;
   pendingCount: number;
   totalCount: number;
   onPhotos: () => void;
   onFiles: () => void;
   onDirectory: () => void;
+  onGooglePhotos: () => void;
   onClose: () => void;
 }) {
   const appending = pendingCount > 0;
