@@ -26,6 +26,19 @@ export interface UploadQueueRecord {
   completedAt?: number;
 }
 
+export interface SavedAlbum {
+  id: string;
+  title: string;
+  itemIds: number[];
+  createdAt: number;
+}
+
+export interface GalleryMetadata {
+  favoriteIds: number[];
+  verifiedIds: number[];
+  albums: SavedAlbum[];
+}
+
 export interface UploadBatchRecord {
   id: string;
   channelId: string;
@@ -98,6 +111,11 @@ export const localStore = {
   savePreventDuplicateNames: (value: boolean) => dbPromise.then((db) => db.put("config", value, "preventDuplicateNames")),
   getDatePrefixUploads: () => dbPromise.then(async (db) => Boolean(await db.get("config", "datePrefixUploads"))),
   saveDatePrefixUploads: (value: boolean) => dbPromise.then((db) => db.put("config", value, "datePrefixUploads")),
+  getGalleryMetadata: (channelId: string) => dbPromise.then(async (db) => {
+    const value = await db.get("config", `galleryMetadata:${channelId}`) as GalleryMetadata | undefined;
+    return value || { favoriteIds: [], verifiedIds: [], albums: [] };
+  }),
+  saveGalleryMetadata: (channelId: string, value: GalleryMetadata) => dbPromise.then((db) => db.put("config", value, `galleryMetadata:${channelId}`)),
   getTheme: () => dbPromise.then(async (db) => {
     const value = await db.get("config", "theme");
     return value === "dark" || value === "light" ? value : undefined;
