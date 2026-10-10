@@ -1,5 +1,6 @@
 name: Deploy to GitHub Pages
 
+# Initial deployment trigger for Miki Unlimited Backup.
 on:
   push:
     branches: [main]
