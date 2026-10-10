@@ -9,7 +9,7 @@ function bytesToHex(bytes: Uint8Array) { return Array.from(bytes, (value) => val
 function hexToBytes(hex: string) { return new Uint8Array(hex.match(/.{1,2}/g)?.map((pair) => Number.parseInt(pair, 16)) || []); }
 async function derivePin(pin: string, salt: Uint8Array, iterations: number) {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations, hash: "SHA-256" }, key, 256);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: salt.slice().buffer as ArrayBuffer, iterations, hash: "SHA-256" }, key, 256);
   return bytesToHex(new Uint8Array(bits));
 }
 async function createConfig(pin: string): Promise<SecurityConfig> {
