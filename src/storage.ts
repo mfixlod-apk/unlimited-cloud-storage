@@ -39,6 +39,7 @@ export interface GalleryMetadata {
   favoriteIds: number[];
   verifiedIds: number[];
   albums: SavedAlbum[];
+  fileLabels?: Record<number, { title: string; tags: string[]; note?: string }>;
 }
 
 export interface UploadBatchRecord {
