@@ -120,6 +120,8 @@ export const localStore = {
   saveGalleryMetadata: (channelId: string, value: GalleryMetadata) => dbPromise.then((db) => db.put("config", value, `galleryMetadata:${channelId}`)),
   getSecurityConfig: () => dbPromise.then(async (db) => (await db.get("config", "securityConfig")) as { salt: string; hash: string; iterations: number; enabled: boolean } | undefined),
   saveSecurityConfig: (value: { salt: string; hash: string; iterations: number; enabled: boolean }) => dbPromise.then((db) => db.put("config", value, "securityConfig")),
+  getVaultPinConfig: () => dbPromise.then(async (db) => (await db.get("config", "vaultPinConfig")) as { salt: string; hash: string; iterations: number } | undefined),
+  saveVaultPinConfig: (value: { salt: string; hash: string; iterations: number }) => dbPromise.then((db) => db.put("config", value, "vaultPinConfig")),
   getGooglePhotosClientId: () => dbPromise.then(async (db) => (await db.get("config", "googlePhotosClientId")) as string | undefined),
   saveGooglePhotosClientId: (value: string) => dbPromise.then((db) => db.put("config", value, "googlePhotosClientId")),
   getTheme: () => dbPromise.then(async (db) => {
