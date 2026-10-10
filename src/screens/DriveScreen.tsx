@@ -454,6 +454,17 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     if ((search.trim() || favoritesOnly || activeAlbumId) && hasMore && !loading && !loadingMore && !selected) void load(false);
   }, [hasMore, load, loading, loadingMore, search, selected, favoritesOnly, activeAlbumId]);
 
+  const folderIsVaultProtected = (folder: SavedAlbum) => {
+    let current: SavedAlbum | undefined = folder;
+    const seen = new Set<string>();
+    while (current && !seen.has(current.id)) {
+      if (current.isVault) return true;
+      seen.add(current.id);
+      current = galleryMetadata.albums.find((entry) => entry.id === current?.parentId);
+    }
+    return false;
+  };
+
   const visibleItems = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
     const favoriteSet = new Set(galleryMetadata.favoriteIds);
@@ -1180,17 +1191,6 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     await saveGalleryMetadata({ ...galleryMetadata, albums: [folder, ...galleryMetadata.albums] });
     setActiveAlbumId(folder.id);
     setFavoritesOnly(false);
-  };
-
-  const folderIsVaultProtected = (folder: SavedAlbum) => {
-    let current: SavedAlbum | undefined = folder;
-    const seen = new Set<string>();
-    while (current && !seen.has(current.id)) {
-      if (current.isVault) return true;
-      seen.add(current.id);
-      current = galleryMetadata.albums.find((entry) => entry.id === current?.parentId);
-    }
-    return false;
   };
 
   const openFolder = async (folder: SavedAlbum) => {
