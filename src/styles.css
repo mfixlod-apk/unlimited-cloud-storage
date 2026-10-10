@@ -871,7 +871,7 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
 .viewer-actions .viewer-favorite { font-size:27px; line-height:1; }
 .viewer-actions .viewer-favorite.active { color:#ffd166; }
 .viewer-actions button:disabled { opacity:.35; }
-.viewer-image-frame img { transition: transform .16s ease; transform-origin:center center; }
+.viewer-image-frame img { transition: none; transform-origin:center center; will-change: transform; }
 .viewer-image-frame.zoomed { overflow:auto; display:block; }
 .viewer-image-frame.zoomed img { max-width:none; max-height:none; width:auto; height:auto; min-width:100%; min-height:100%; object-fit:contain; }
 .viewer-nav { opacity:.55; }
