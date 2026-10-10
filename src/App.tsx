@@ -4,10 +4,11 @@ import { telegramDrive, type CloudChannel, type TelegramCredentials } from "./te
 import { DriveScreen } from "./screens/DriveScreen";
 import { AuthScreen, ChannelScreen, LandingScreen, LoadingScreen } from "./screens/OnboardingScreens";
 import { friendlyError, type Theme } from "./screens/shared";
+import { SecurityGate } from "./screens/SecurityGate";
 
 type Stage = "boot" | "credentials" | "auth" | "channels" | "drive" | "home";
 
-export default function App() {
+function AppContent() {
   const [theme, setTheme] = useState<Theme>(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   const [stage, setStage] = useState<Stage>("boot");
   const [credentials, setCredentials] = useState<TelegramCredentials>();
@@ -214,4 +215,9 @@ export default function App() {
       {stage === "home" && account && <LandingScreen initial={credentials} externalError="" account={account} onContinue={handleCredentials} onOpenWorkspace={openWorkspace} onLogOut={logOut} onSwitchAccount={logOut} />}
     </>
   );
+}
+
+
+export default function App() {
+  return <SecurityGate><AppContent /></SecurityGate>;
 }
