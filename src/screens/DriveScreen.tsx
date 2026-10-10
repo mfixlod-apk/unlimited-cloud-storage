@@ -1191,7 +1191,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     if (isVault) {
       let pinConfig = await localStore.getVaultPinConfig();
       const pin = window.prompt(pinConfig ? "Enter your vault PIN (4–6 digits)" : "Create a vault PIN (4–6 digits)");
-      if (!pin || !/^\\d{4,6}$/.test(pin)) { window.alert("PIN must contain 4–6 digits."); return; }
+      if (!pin || !/^\d{4,6}$/.test(pin)) { window.alert("PIN must contain 4–6 digits."); return; }
       const saltBytes = pinConfig ? Uint8Array.from(pinConfig.salt.match(/.{1,2}/g) || [], (v) => parseInt(v, 16)) : crypto.getRandomValues(new Uint8Array(16));
       const iterations = pinConfig?.iterations || 210000;
       const derive = async (value: string) => {
@@ -1217,7 +1217,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
       const pinConfig = await localStore.getVaultPinConfig();
       if (!pinConfig) { window.alert("Create a vault PIN first."); return; }
       const pin = window.prompt("Enter your vault PIN");
-      if (!pin || !/^\\d{4,6}$/.test(pin)) return;
+      if (!pin || !/^\d{4,6}$/.test(pin)) return;
       const saltBytes = Uint8Array.from(pinConfig.salt.match(/.{1,2}/g) || [], (v) => parseInt(v, 16));
       const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin), "PBKDF2", false, ["deriveBits"]);
       const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: saltBytes.buffer as ArrayBuffer, iterations: pinConfig.iterations, hash: "SHA-256" }, key, 256);
@@ -1234,8 +1234,8 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
   const addSelectedToFolder = async () => {
     const folders = galleryMetadata.albums;
     if (!checkedIds.size || !folders.length) { window.alert("Select files and create a folder first."); return; }
-    const choices = folders.map((folder, index) => `${index + 1}. ${folder.title}`).join("\\n");
-    const answer = window.prompt(`Move selected files to which folder?\\n${choices}\\nEnter the folder number:`);
+    const choices = folders.map((folder, index) => `${index + 1}. ${folder.title}`).join("\n");
+    const answer = window.prompt(`Move selected files to which folder?\n${choices}\nEnter the folder number:`);
     const target = folders[Number(answer) - 1];
     if (!target) return;
     if (target.isVault && !vaultUnlocked) { await openFolder(target); return; }
