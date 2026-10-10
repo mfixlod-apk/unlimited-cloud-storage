@@ -11,6 +11,9 @@ type Props = {
   selectedIds: number[];
   verificationBusy: boolean;
   verificationMessage: string;
+  faceBusy: boolean;
+  faceMessage: string;
+  onTryFaceDetection: () => void;
   onVerifySelected: () => void;
   onClose: () => void;
   onToggleFavorite: (item: CloudItem) => void;
@@ -22,7 +25,7 @@ type Props = {
 const dayKey = (date: Date) => `${date.getMonth()}-${date.getDate()}`;
 const normalizeName = (name: string) => name.toLocaleLowerCase().replace(/\s*\(\d+\)(?=\.[^.]+$)/, "").replace(/[-_ ]copy(?=\.[^.]+$)/, "");
 
-export function InsightsPanel({ items, favoriteIds, verifiedIds, albums, selectedIds, verificationBusy, verificationMessage, onVerifySelected, onClose, onToggleFavorite, onCreateAlbum, onOpenItem, onOpenAlbum }: Props) {
+export function InsightsPanel({ items, favoriteIds, verifiedIds, albums, selectedIds, verificationBusy, verificationMessage, faceBusy, faceMessage, onTryFaceDetection, onVerifySelected, onClose, onToggleFavorite, onCreateAlbum, onOpenItem, onOpenAlbum }: Props) {
   const [albumTitle, setAlbumTitle] = useState("");
   const favorites = useMemo(() => items.filter((item) => favoriteIds.includes(item.id)), [items, favoriteIds]);
   const memories = useMemo(() => {
@@ -61,7 +64,7 @@ export function InsightsPanel({ items, favoriteIds, verifiedIds, albums, selecte
       <section className="insights-section"><h3>Memories from this day</h3>{memories.length ? <div className="insights-list">{memories.map((item) => <button key={item.id} onClick={() => onOpenItem(item)}><span><strong>{item.name}</strong><small>{formatDate(item.date)}</small></span><small>{formatSize(item.size)}</small></button>)}</div> : <p className="insights-muted">No older files from today’s date are in the currently loaded history.</p>}</section>
       <section className="insights-section"><h3>Possible duplicates</h3><p>These are candidates with matching file size and similar names, not confirmed byte-for-byte duplicates. Nothing is deleted automatically.</p>{duplicates.length ? <div className="insights-list">{duplicates.map((item) => <button key={item.id} onClick={() => onOpenItem(item)}><span><strong>{item.name}</strong><small>{formatDate(item.date)}</small></span><small>{formatSize(item.size)}</small></button>)}</div> : <p className="insights-muted">No likely duplicates found in the loaded items.</p>}</section>
       <section className="insights-section"><h3>Favorites</h3>{favorites.length ? <div className="insights-list">{favorites.slice(0, 12).map((item) => <div className="insights-favorite" key={item.id}><button className="insights-favorite-open" onClick={() => onOpenItem(item)}><strong>{item.name}</strong><small>{formatDate(item.date)}</small></button><button onClick={() => onToggleFavorite(item)} aria-label={`Remove ${item.name} from favorites`}>★</button></div>)}</div> : <p className="insights-muted">Mark a file as a favorite from its card menu.</p>}</section>
-      <section className="insights-section"><h3>Map and face search</h3><div className="insights-capability"><strong>Photo map</strong><p>The current Telegram index stores file name, date and size, but not GPS coordinates. A map can be populated after adding safe EXIF-location extraction.</p></div><div className="insights-capability"><strong>Local face detection experiment</strong><p>{canTryFaceDetection ? "This browser exposes a local face-detection API. It can be tested on supported images without sending face data to a server." : "Face detection is not exposed by this browser (common in iPhone Safari). No face data is uploaded or sent anywhere. A compatible local model would be needed to support this browser."}</p></div></section>
+      <section className="insights-section"><h3>Map and face search</h3><div className="insights-capability"><strong>Photo map</strong><p>The current Telegram index stores file name, date and size, but not GPS coordinates. A map can be populated after adding safe EXIF-location extraction.</p></div><div className="insights-capability"><strong>Local face detection experiment</strong><p>{canTryFaceDetection ? "Try detecting faces in the thumbnail of a selected image. Processing runs locally and results are not saved." : "Face detection is not exposed by this browser (common in iPhone Safari). No face data is uploaded or sent anywhere. A compatible local model would be needed to support this browser."}</p><button className="insights-verify-button" onClick={onTryFaceDetection} disabled={!canTryFaceDetection || !selectedIds.length || faceBusy}>{faceBusy ? "Testing locally…" : "Test on selected image"}</button>{faceMessage && <p className="insights-verification-message" role="status">{faceMessage}</p>}</div></section>
       <footer className="insights-footer">Favorites and albums are stored locally in this browser. They do not create copies of files in Telegram.</footer>
     </section>
   </div>;
