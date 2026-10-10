@@ -73,7 +73,9 @@ type SaveFilePickerWindow = Window & {
 };
 
 const monthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+const dayKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 const formatMonth = (date: Date) => new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(date);
+const formatDay = (date: Date) => new Intl.DateTimeFormat(undefined, { day: "numeric", month: "long", year: "numeric" }).format(date);
 const dateFromFileName = (name: string) => {
   // Covers the app's YYYY-MM-DD__ prefix plus common IMG_20240817 and
   // Screenshot_2024-08-17 forms. Only inspect the beginning of a name and
@@ -1452,9 +1454,9 @@ function MemoryGallery({ items, channel, groupByMonth, sortOrder, memoryLimitMb,
     if (!groupByMonth) return [{ key: "all", label: "", items }];
     const grouped = new Map<string, { label: string; items: CloudItem[] }>();
     for (const item of items) {
-      const groupingDate = dateFromFileName(item.name) || item.date;
-      const key = monthKey(groupingDate);
-      const current = grouped.get(key) || { label: formatMonth(groupingDate), items: [] };
+      const groupingDate = item.date;
+      const key = dayKey(groupingDate);
+      const current = grouped.get(key) || { label: formatDay(groupingDate), items: [] };
       current.items.push(item);
       grouped.set(key, current);
     }
@@ -1479,7 +1481,7 @@ function MemoryGallery({ items, channel, groupByMonth, sortOrder, memoryLimitMb,
 
 const estimateColumns = () => {
   const width = window.innerWidth;
-  if (width <= 580) return 2;
+  if (width <= 580) return 3;
   const contentWidth = width <= 900 ? width - 40 : width - 230 - Math.max(50, width * .08);
   return Math.max(1, Math.floor((contentWidth + 20) / 210));
 };
