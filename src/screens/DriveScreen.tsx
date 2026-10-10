@@ -459,7 +459,8 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     const favoriteSet = new Set(galleryMetadata.favoriteIds);
     const album = galleryMetadata.albums.find((entry) => entry.id === activeAlbumId);
     const albumSet = album ? new Set(album.itemIds) : undefined;
-    return items.filter((item) => (filter === "all" || item.kind === filter) && (!query || item.name.toLocaleLowerCase().includes(query)) && (!favoritesOnly || favoriteSet.has(item.id)) && (!albumSet || albumSet.has(item.id)));
+    const vaultItemIds = new Set(galleryMetadata.albums.filter((entry) => folderIsVaultProtected(entry)).flatMap((entry) => entry.itemIds));
+    return items.filter((item) => (activeAlbumId ? Boolean(albumSet?.has(item.id)) : !vaultItemIds.has(item.id)) && (filter === "all" || item.kind === filter) && (!query || item.name.toLocaleLowerCase().includes(query)) && (!favoritesOnly || favoriteSet.has(item.id)));
   }, [items, filter, search, galleryMetadata, favoritesOnly, activeAlbumId]);
 
   const publishUploadSnapshot = useCallback((force = false) => {
@@ -1181,8 +1182,19 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     setFavoritesOnly(false);
   };
 
+  const folderIsVaultProtected = (folder: SavedAlbum) => {
+    let current: SavedAlbum | undefined = folder;
+    const seen = new Set<string>();
+    while (current && !seen.has(current.id)) {
+      if (current.isVault) return true;
+      seen.add(current.id);
+      current = galleryMetadata.albums.find((entry) => entry.id === current?.parentId);
+    }
+    return false;
+  };
+
   const openFolder = async (folder: SavedAlbum) => {
-    if (folder.isVault) {
+    if (folderIsVaultProtected(folder) && !vaultUnlocked) {
       const pinConfig = await localStore.getVaultPinConfig();
       if (!pinConfig) { window.alert("Create a vault PIN first."); return; }
       const pin = window.prompt("Enter your vault PIN");
