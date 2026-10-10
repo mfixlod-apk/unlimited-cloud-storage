@@ -891,3 +891,22 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
 }
 
 @media (max-width:640px) { .viewer-image-frame { touch-action:none; } .viewer-image-frame.zoomed img { max-width:none; max-height:none; } }
+
+
+/* Nested folders and PIN-protected vault */
+.folder-toolbar { margin: 8px 0 18px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--text); }
+.folder-toolbar-title, .folder-toolbar-actions { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+.folder-toolbar-title { margin-bottom:10px; }
+.folder-toolbar-title strong { font-size:15px; }
+.folder-toolbar-actions { justify-content:flex-start; }
+.folder-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(125px,1fr)); gap:8px; margin-top:12px; }
+.folder-tile { display:flex; flex-direction:column; align-items:flex-start; gap:7px; min-width:0; padding:12px; border:1px solid var(--line); border-radius:12px; background:var(--soft); color:var(--text); text-align:left; cursor:pointer; }
+.folder-tile > span { font-size:24px; }
+.folder-tile strong { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.folder-tile small { color:var(--muted); font-size:10px; }
+.vault-folder { border-color:#c6a35b; background:color-mix(in srgb, #c6a35b 10%, var(--surface)); }
+@media (max-width:640px) {
+ .folder-toolbar { margin:8px 10px 14px; padding:12px; border-radius:12px; }
+ .folder-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .folder-toolbar-actions .secondary-button { min-height:36px; padding:0 10px; font-size:12px; }
+}
