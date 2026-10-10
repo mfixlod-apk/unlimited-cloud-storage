@@ -444,11 +444,11 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     return () => observer.disconnect();
   }, [hasMore, load, loading, loadingMore, selected]);
 
-  // A search scans every remaining history page. Each result kept in React is
-  // lightweight metadata; full Teleproto messages are fetched only on demand.
+  // Search, favorites and albums scan remaining history pages so their results
+  // are not limited to the currently rendered page. Only lightweight metadata is retained.
   useEffect(() => {
-    if (search.trim() && hasMore && !loading && !loadingMore && !selected) void load(false);
-  }, [hasMore, load, loading, loadingMore, search, selected]);
+    if ((search.trim() || favoritesOnly || activeAlbumId) && hasMore && !loading && !loadingMore && !selected) void load(false);
+  }, [hasMore, load, loading, loadingMore, search, selected, favoritesOnly, activeAlbumId]);
 
   const visibleItems = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
