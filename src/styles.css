@@ -833,7 +833,7 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
   .month-group > h2 small { font-size: 10px; }
   .media-card { overflow: hidden; border-radius: 3px; }
   .thumbnail { aspect-ratio: 1 / 1; border-radius: 3px; }
-  .media-info { display: none; }
+  .media-info { display: flex; flex-direction: column; min-width: 0; }
   .card-menu { top: 5px; right: 5px; opacity: 0; }
   .media-card:focus-within .card-menu { opacity: 1; }
   .play-badge { right: 6px; bottom: 6px; }
