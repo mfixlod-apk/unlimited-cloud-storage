@@ -1323,7 +1323,7 @@ function ChannelSwitcher({ channel, channels, showPublic, onShowPublic, onSelect
   return <div className="channel-switcher"><span>Storage channel</span><details className="channel-select" ref={details}><summary aria-label="Switch storage channel"><FolderIcon /><strong title={channel.title}>{channel.title}</strong><ChevronIcon /></summary><div className="channel-dropdown">{availableChannels.map((entry) => editingId === entry.id ? <form key={entry.id} className="dropdown-channel-edit" onSubmit={(event) => void saveRename(event, entry)}><input autoFocus maxLength={128} value={editTitle} onChange={(event) => setEditTitle(event.target.value)} disabled={channelBusy === entry.id} aria-label={`New name for ${entry.title}`} /><button type="button" onClick={() => { setEditingId(undefined); setChannelError(""); }} disabled={channelBusy === entry.id}>Cancel</button><button type="submit" disabled={channelBusy === entry.id}>Save</button></form> : <div className={`dropdown-channel-row ${entry.id === channel.id ? "selected" : ""}`} key={entry.id}><button className="dropdown-channel-choice" onClick={() => select(entry)} disabled={!entry.canWrite || Boolean(channelBusy)}><span><strong>{entry.title}</strong><small>{entry.isPublic ? "Public" : "Private"}{entry.canWrite ? "" : " · Read-only"}</small></span>{entry.id === channel.id && <CheckIcon />}</button>{(entry.canRename || entry.canDelete) && <div className="dropdown-channel-actions">{entry.canRename && <button onClick={() => { setEditingId(entry.id); setEditTitle(entry.title); setChannelError(""); }} disabled={Boolean(channelBusy)} aria-label={`Rename ${entry.title}`} title="Rename channel"><EditIcon /></button>}{entry.canDelete && <button className="danger" onClick={() => void remove(entry)} disabled={Boolean(channelBusy)} aria-label={`Delete ${entry.title}`} title="Delete channel">{channelBusy === entry.id ? <span className="spinner" /> : <TrashIcon />}</button>}</div>}</div>)}{channelError && <small className="dropdown-channel-error" role="alert">{channelError}</small>}<div className="dropdown-create">{creating ? <form className="dropdown-create-form" onSubmit={create}><label>Channel name<input autoFocus maxLength={128} value={createTitle} onChange={(event) => setCreateTitle(event.target.value)} disabled={createBusy} /></label>{createError && <small role="alert">{createError}</small>}<div><button type="button" onClick={() => { setCreating(false); setCreateError(""); }} disabled={createBusy}>Cancel</button><button type="submit" disabled={createBusy}>{createBusy ? <><span className="spinner" />Creating…</> : "Create"}</button></div></form> : <button className="dropdown-create-button" onClick={() => { setCreating(true); setCreateError(""); }}><PlusIcon /><span><strong>Create new channel</strong><small>Private storage channel</small></span></button>}</div><label className="dropdown-public-toggle"><span><strong>Show public</strong><small>May be visible to subscribers</small></span><input type="checkbox" checked={showPublic} onChange={(event) => onShowPublic(event.target.checked)} /></label></div></details><button className="channel-manage" onClick={onManage}>Manage channels</button></div>;
 }
 
-function MemoryGallery({ items, channel, groupByMonth, sortOrder, memoryLimitMb, hasMore, paused, selectionMode, selectedIds, onOpen, onToggleSelection, onDownload, onDelete }: {
+function MemoryGallery({ items, channel, groupByMonth, sortOrder, memoryLimitMb, hasMore, paused, selectionMode, selectedIds, favoriteIds, onToggleFavorite, onOpen, onToggleSelection, onDownload, onDelete }: {
   items: CloudItem[];
   channel: CloudChannel;
   groupByMonth: boolean;
@@ -1333,6 +1333,8 @@ function MemoryGallery({ items, channel, groupByMonth, sortOrder, memoryLimitMb,
   paused: boolean;
   selectionMode: boolean;
   selectedIds: Set<number>;
+  favoriteIds: Set<number>;
+  onToggleFavorite: (item: CloudItem) => void;
   onOpen: (item: CloudItem) => void;
   onToggleSelection: (item: CloudItem) => void;
   onDownload: (item: CloudItem) => Promise<void>;
@@ -1372,7 +1374,7 @@ function MemoryGallery({ items, channel, groupByMonth, sortOrder, memoryLimitMb,
       const isLastChunk = groupIndex === groups.length - 1 && index === chunkCount - 1;
       const placeholderCount = hasMore && isLastChunk ? (layout.columns - chunk.length % layout.columns) % layout.columns : 0;
       const estimatedHeight = Math.ceil((chunk.length + placeholderCount) / layout.columns) * layout.rowHeight;
-      return <VirtualGalleryChunk key={`${group.key}:${index}`} items={chunk} channel={channel} paused={paused} selectionMode={selectionMode} selectedIds={selectedIds} placeholderCount={placeholderCount} initiallyActive={currentIndex < 2} estimatedHeight={estimatedHeight} prefetchPx={prefetchPx} onOpen={onOpen} onToggleSelection={onToggleSelection} onDownload={onDownload} onDelete={onDelete} />;
+      return <VirtualGalleryChunk key={`${group.key}:${index}`} items={chunk} channel={channel} paused={paused} selectionMode={selectionMode} selectedIds={selectedIds} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} placeholderCount={placeholderCount} initiallyActive={currentIndex < 2} estimatedHeight={estimatedHeight} prefetchPx={prefetchPx} onOpen={onOpen} onToggleSelection={onToggleSelection} onDownload={onDownload} onDelete={onDelete} />;
     })}</div></section>;
   })}</div>;
 }
@@ -1385,12 +1387,14 @@ const estimateColumns = () => {
 };
 const estimateRowHeight = () => window.innerWidth <= 580 ? 190 : 230;
 
-function VirtualGalleryChunk({ items, channel, paused, selectionMode, selectedIds, placeholderCount, initiallyActive, estimatedHeight, prefetchPx, onOpen, onToggleSelection, onDownload, onDelete }: {
+function VirtualGalleryChunk({ items, channel, paused, selectionMode, selectedIds, favoriteIds, onToggleFavorite, placeholderCount, initiallyActive, estimatedHeight, prefetchPx, onOpen, onToggleSelection, onDownload, onDelete }: {
   items: CloudItem[];
   channel: CloudChannel;
   paused: boolean;
   selectionMode: boolean;
   selectedIds: Set<number>;
+  favoriteIds: Set<number>;
+  onToggleFavorite: (item: CloudItem) => void;
   placeholderCount: number;
   initiallyActive: boolean;
   estimatedHeight: number;
@@ -1414,7 +1418,7 @@ function VirtualGalleryChunk({ items, channel, paused, selectionMode, selectedId
     observer.observe(element);
     return () => observer.disconnect();
   }, [prefetchPx]);
-  return <div ref={ref} className={`gallery virtual-chunk ${active ? "active" : "parked"}`} style={active ? undefined : { minHeight: `${measuredHeight || estimatedHeight}px` }}>{active && <>{items.map((item) => <MediaCard key={item.id} channel={channel} item={item} pauseThumbnail={paused} selectionMode={selectionMode} selected={selectedIds.has(item.id)} onOpen={() => onOpen(item)} onToggleSelection={() => onToggleSelection(item)} onDownload={() => void onDownload(item)} onDelete={() => void onDelete(item)} />)}{Array.from({ length: placeholderCount }, (_, index) => <div className="memory-slot" aria-hidden="true" key={`slot:${index}`}><span /><i /><i /></div>)}</>}</div>;
+  return <div ref={ref} className={`gallery virtual-chunk ${active ? "active" : "parked"}`} style={active ? undefined : { minHeight: `${measuredHeight || estimatedHeight}px` }}>{active && <>{items.map((item) => <MediaCard key={item.id} channel={channel} item={item} pauseThumbnail={paused} selectionMode={selectionMode} selected={selectedIds.has(item.id)} favorite={favoriteIds.has(item.id)} onToggleFavorite={() => onToggleFavorite(item)} onOpen={() => onOpen(item)} onToggleSelection={() => onToggleSelection(item)} onDownload={() => void onDownload(item)} onDelete={() => void onDelete(item)} />)}{Array.from({ length: placeholderCount }, (_, index) => <div className="memory-slot" aria-hidden="true" key={`slot:${index}`}><span /><i /><i /></div>)}</>}</div>;
 }
 
 function Thumbnail({ channel, item, paused }: { channel: CloudChannel; item: CloudItem; paused: boolean }) {
@@ -1437,13 +1441,13 @@ function Thumbnail({ channel, item, paused }: { channel: CloudChannel; item: Clo
   return <div className={`thumbnail ${loaded ? "loaded" : ""}`}>{url ? <img src={url} alt="" loading="lazy" onError={failed} /> : <Placeholder />}{item.kind === "video" && <span className="play-badge">▶</span>}</div>;
 }
 
-function MediaCard({ channel, item, pauseThumbnail, selectionMode, selected, onOpen, onToggleSelection, onDownload, onDelete }: { channel: CloudChannel; item: CloudItem; pauseThumbnail: boolean; selectionMode: boolean; selected: boolean; onOpen: () => void; onToggleSelection: () => void; onDownload: () => void; onDelete: () => void }) {
+function MediaCard({ channel, item, pauseThumbnail, selectionMode, selected, favorite, onToggleFavorite, onOpen, onToggleSelection, onDownload, onDelete }: { channel: CloudChannel; item: CloudItem; pauseThumbnail: boolean; selectionMode: boolean; selected: boolean; favorite: boolean; onToggleFavorite: () => void; onOpen: () => void; onToggleSelection: () => void; onDownload: () => void; onDelete: () => void }) {
   const [menu, setMenu] = useState(false);
   return <article className={`media-card ${item.kind === "file" || item.kind === "audio" ? "document-card" : ""} ${selected ? "selection-selected" : ""}`}>
     <button className="media-open" onClick={selectionMode ? onToggleSelection : onOpen} aria-pressed={selectionMode ? selected : undefined}><Thumbnail channel={channel} item={item} paused={pauseThumbnail} /><span className="media-info"><strong title={item.name}>{item.name}</strong><small>{formatDate(item.date)} · {formatSize(item.size)}</small></span></button>
     {selectionMode && <span className={`selection-check ${selected ? "checked" : ""}`} aria-hidden="true">{selected && <CheckIcon />}</span>}
     {!selectionMode && <button className="card-menu" aria-label={`Actions for ${item.name}`} onClick={() => setMenu((value) => !value)}><MoreIcon /></button>}
-    {!selectionMode && menu && <div className="action-menu" onMouseLeave={() => setMenu(false)}><button onClick={() => { setMenu(false); onDownload(); }}><DownloadIcon />Download</button><button className="danger" onClick={() => { setMenu(false); onDelete(); }}><TrashIcon />Delete</button></div>}
+    {!selectionMode && menu && <div className="action-menu" onMouseLeave={() => setMenu(false)}><button onClick={() => { setMenu(false); onToggleFavorite(); }}>{favorite ? "★ Remove favorite" : "☆ Add to favorites"}</button><button onClick={() => { setMenu(false); onDownload(); }}><DownloadIcon />Download</button><button className="danger" onClick={() => { setMenu(false); onDelete(); }}><TrashIcon />Delete</button></div>}
   </article>;
 }
 
