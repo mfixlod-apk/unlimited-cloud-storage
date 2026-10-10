@@ -672,3 +672,39 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
 .insights-verify-button { min-height: 40px; margin-top: 10px; padding: 0 13px; color: var(--text); border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-weight: 650; }
 .insights-verify-button:disabled { opacity: .45; }
 .insights-verification-message { margin-top: 10px !important; padding: 10px 12px; border-radius: 9px; background: var(--surface-raised, var(--surface)); }
+
+
+/* Local PIN lock and Google Photos Picker */
+.security-loading { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; background: #181816; color: #f7f7f4; font: 600 16px system-ui,sans-serif; }
+.security-backdrop { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; overflow-y: auto; padding: 20px; background: rgba(0,0,0,.82); backdrop-filter: blur(18px); }
+.security-card { width: min(420px,100%); padding: 28px; border: 1px solid rgba(255,255,255,.14); border-radius: 24px; background: #1d1d1b; color: #f5f5f1; box-shadow: 0 25px 90px rgba(0,0,0,.4); }
+.security-icon { display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 18px; border-radius: 16px; background: #ff775f; color: white; font-size: 30px; }
+.security-card h1 { margin: 0 0 9px; font-size: 26px; letter-spacing: -.5px; }
+.security-card p { color: #b8b8b0; font-size: 14px; line-height: 1.5; }
+.security-form { display: grid; gap: 13px; margin-top: 20px; }
+.security-form label,.google-client-label { display: grid; gap: 7px; color: inherit; font-size: 13px; font-weight: 650; }
+.security-form input,.google-client-label input { width: 100%; min-height: 48px; padding: 0 13px; border: 1px solid #494944; border-radius: 12px; outline: none; background: #141412; color: #fff; font-size: 18px; letter-spacing: 2px; }
+.security-form input:focus,.google-client-label input:focus { border-color: #ff775f; }
+.security-primary,.security-secondary,.security-danger { min-height: 46px; padding: 0 14px; border-radius: 12px; font-weight: 750; }
+.security-primary { border: 0; background: #ff775f; color: #1b1715; }
+.security-secondary { width: 100%; margin-top: 10px; border: 1px solid #494944; background: transparent; color: #f5f5f1; }
+.security-danger { width: 100%; margin-top: 10px; border: 1px solid #a34b43; background: transparent; color: #ff9b8b; }
+.security-error,.google-error { color: #ff9b8b !important; }
+.security-card small { display: block; margin-top: 15px; color: #a9a9a1; font-size: 11px; line-height: 1.5; }
+.security-manage-button { position: fixed; right: 14px; bottom: max(14px, env(safe-area-inset-bottom)); z-index: 300; display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid var(--line); border-radius: 50%; background: var(--surface); box-shadow: 0 4px 20px #0002; cursor: pointer; }
+.google-photos-backdrop { z-index: 500; }
+.google-photos-card { width: min(560px,100%); max-height: 90vh; overflow-y: auto; padding: 24px; border: 1px solid var(--line); border-radius: 22px; background: var(--surface); color: var(--text); box-shadow: 0 25px 90px #0005; }
+.google-photos-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.google-photos-card header h2 { margin: 5px 0 12px; font-size: 25px; }
+.google-photos-card header button { width: 40px; height: 40px; border: 1px solid var(--line); border-radius: 50%; background: transparent; color: inherit; font-size: 25px; }
+.google-photos-card > p,.google-photos-card > small,.google-photos-card footer,.google-session p { color: var(--muted); font-size: 12px; line-height: 1.55; }
+.google-client-label { margin: 18px 0 8px; }
+.google-client-label input { color: var(--text); background: var(--surface); font-size: 14px; letter-spacing: 0; }
+.google-primary { display: block; width: 100%; min-height: 46px; margin-top: 14px; padding: 10px 14px; border: 0; border-radius: 12px; background: var(--accent, #ff775f); color: #211714; font-weight: 750; }
+.google-primary:disabled { opacity: .5; }
+.google-session { margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; }
+.google-session a { color: var(--text); font-weight: 750; }
+.google-status { padding: 12px; border-radius: 10px; background: var(--surface-raised, var(--surface)); }
+.google-photos-card footer { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.google-photos-option { width: 100%; }
+@media (max-width: 540px) { .security-card,.google-photos-card { padding: 22px 18px; } .security-backdrop { padding: 12px; } .google-photos-backdrop { align-items: end; padding: 0; } .google-photos-card { max-height: 92dvh; border-radius: 22px 22px 0 0; padding-bottom: calc(22px + env(safe-area-inset-bottom)); } }
