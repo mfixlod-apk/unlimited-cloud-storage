@@ -838,3 +838,28 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
   .media-card:focus-within .card-menu { opacity: 1; }
   .play-badge { right: 6px; bottom: 6px; }
 }
+
+
+/* Final photo-library layout pass */
+@media (max-width: 640px) {
+  .app-main, .drive-main, .content-area { padding-left: 0 !important; padding-right: 0 !important; }
+  .month-groups, .gallery-groups { padding-left: 12px; padding-right: 12px; }
+  .month-group > h2 { display:flex; align-items:baseline; gap:8px; margin: 0 2px 10px; font-size:17px; }
+  .month-group > h2 small { background:transparent; padding:0; font-size:10px; }
+  .gallery { grid-template-columns:repeat(3,minmax(0,1fr)); gap:2px; }
+  .gallery-chunks { gap:2px; }
+  .media-card { border-radius:3px; }
+  .thumbnail { aspect-ratio:1 / 1; border-radius:3px; }
+  .media-info { display:none; }
+  .card-menu { opacity:0; }
+  .media-card:focus-within .card-menu { opacity:1; }
+  .selection-check { top:5px; right:5px; width:23px; height:23px; }
+  .viewer-backdrop { padding:0; }
+  .viewer { width:100%; height:100dvh; border-radius:0; }
+  .viewer header { padding-left:14px; padding-right:10px; }
+  .viewer-content { --viewer-pad-x:0px; --viewer-pad-y:0px; }
+}
+@media (min-width: 641px) {
+  .gallery { grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:12px; }
+  .thumbnail { aspect-ratio:1 / 1; }
+}
