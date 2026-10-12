@@ -908,3 +908,27 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
  .folder-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
  .folder-toolbar-actions .secondary-button { min-height:36px; padding:0 10px; font-size:12px; }
 }
+
+
+/* Vaultgram-inspired smart folders and alternate list layout */
+.smart-folders { display:grid; gap:3px; margin-top:22px; }
+.smart-folders > small { padding:0 10px 7px; color:var(--muted); font-size:10px; font-weight:750; letter-spacing:.12em; }
+.smart-folders > button { min-width:0; display:flex; align-items:center; gap:8px; padding:9px 10px; border-radius:9px; background:transparent; color:var(--muted); text-align:left; font-size:12px; }
+.smart-folders > button:hover,.smart-folders > button.active { background:var(--surface); color:var(--ink); }
+.smart-folders > button span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.smart-folders > button small { margin-left:auto; font-size:10px; opacity:.7; }
+.list-layout .gallery { display:flex; flex-direction:column; gap:8px; }
+.list-layout .gallery-chunks { gap:8px; }
+.media-card.list-view { display:flex; align-items:center; min-height:78px; padding:7px 10px; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
+.media-card.list-view .media-open { display:flex; flex-direction:row; align-items:center; gap:13px; min-width:0; padding:0; }
+.media-card.list-view .thumbnail { flex:0 0 62px; width:62px; height:62px; aspect-ratio:1; border:0; border-radius:8px; }
+.media-card.list-view .media-info { flex:1; min-width:0; gap:5px; padding:0 36px 0 0; }
+.media-card.list-view .media-info strong { font-size:13px; }
+.media-card.list-view .media-info small { font-size:11px; }
+.media-card.list-view .card-menu { top:50%; right:4px; transform:translateY(-50%); }
+@media(max-width:640px) {
+  .smart-folders { margin-top:12px; }
+  .media-card.list-view { min-height:68px; padding:6px 8px; }
+  .media-card.list-view .thumbnail { flex-basis:54px; width:54px; height:54px; }
+  .media-card.list-view .media-info { padding-right:30px; }
+}
