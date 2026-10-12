@@ -1760,7 +1760,7 @@ function Viewer({ channel, item, previewLimitBytes, favorite, onToggleFavorite, 
       const controller = new AbortController();
       const blob = await telegramDrive.download(channel, item, () => {}, controller.signal);
       if (!blob) throw new Error("The file could not be downloaded for sharing.");
-      const file = new File([blob], item.name, { type: blob.type || item.mimeType || "application/octet-stream", lastModified: item.date.getTime() });
+      const file = new File([blob], item.name, { type: blob.type || "application/octet-stream", lastModified: item.date.getTime() });
       if (navigator.canShare && !navigator.canShare({ files: [file] })) {
         await onDownload();
         window.alert("File sharing is not supported for this file type on this device. Download started instead.");
