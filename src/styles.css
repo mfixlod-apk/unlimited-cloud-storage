@@ -932,3 +932,7 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
   .media-card.list-view .thumbnail { flex-basis:54px; width:54px; height:54px; }
   .media-card.list-view .media-info { padding-right:30px; }
 }
+
+.media-tags { display:flex; flex-wrap:wrap; gap:4px; min-width:0; margin-top:2px; }
+.media-tags small { max-width:100%; overflow:hidden; padding:3px 6px; border-radius:999px; background:var(--soft); color:var(--muted); font-size:10px; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
+.media-card.list-view .media-tags small { font-size:10px; }
