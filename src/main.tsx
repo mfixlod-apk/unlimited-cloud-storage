@@ -7,7 +7,7 @@ globalThis.Buffer = Buffer;
 
 if ("serviceWorker" in navigator) {
   const serviceWorkerUrl = new URL("service-worker.js", document.baseURI);
-  serviceWorkerUrl.searchParams.set("v", "43");
+  serviceWorkerUrl.searchParams.set("v", "44");
   if (import.meta.env.DEV) serviceWorkerUrl.searchParams.set("dev", "1");
   void navigator.serviceWorker.register(serviceWorkerUrl, { scope: "./" });
 }
