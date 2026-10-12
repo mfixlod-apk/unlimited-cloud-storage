@@ -355,6 +355,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
   const [downloadEntry, setDownloadEntry] = useState<DownloadEntry>();
   const [dragging, setDragging] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const mediaInput = useRef<HTMLInputElement>(null);
   const directoryInput = useRef<HTMLInputElement>(null);
@@ -489,6 +490,19 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     const vaultItemIds = new Set(galleryMetadata.albums.filter((entry) => folderIsVaultProtected(entry)).flatMap((entry) => entry.itemIds));
     return items.filter((item) => { const label = galleryMetadata.fileLabels?.[item.id]; const searchable = [item.name, label?.title, label?.note, ...(label?.tags || [])].filter(Boolean).join(" ").toLocaleLowerCase(); return (activeAlbumId ? Boolean(albumSet?.has(item.id)) : !vaultItemIds.has(item.id)) && (filter === "all" || item.kind === filter) && (!query || searchable.includes(query)) && (!favoritesOnly || favoriteSet.has(item.id)); });
   }, [items, filter, search, galleryMetadata, favoritesOnly, activeAlbumId]);
+
+  useEffect(() => {
+    const onGlobalShortcut = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      if (selected || settings || showInsights) return;
+      event.preventDefault();
+      searchInputRef.current?.focus();
+    };
+    window.addEventListener("keydown", onGlobalShortcut);
+    return () => window.removeEventListener("keydown", onGlobalShortcut);
+  }, [selected, settings, showInsights]);
 
   const publishUploadSnapshot = useCallback((force = false) => {
     const now = Date.now();
@@ -1428,7 +1442,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
         <header className="mobile-drive-nav">
           <div className="mobile-app-bar"><button className="mobile-wordmark" onClick={onHome} aria-label="Go to home page"><CloudIcon />Miki Unlimited Backup</button><div className="mobile-app-actions"><button className="primary-button mobile-upload" onClick={openSync} aria-label={queueHasWork ? "Add more files to the upload queue" : "Sync files now"}><UploadIcon /><span>{queueHasWork ? "Add files" : "Sync now"}</span></button><button className="mobile-settings" onClick={() => setSettings(true)} aria-label="Open settings"><SettingsIcon /></button></div></div>
           <div className="mobile-title-row"><div className="mobile-title-copy"><h1>{tabs.find((tab) => tab.value === filter)?.label}</h1><p>{visibleItems.length}{hasMore ? "+" : ""} {visibleItems.length === 1 ? "item" : "items"}</p></div><div className="mobile-channel-control"><ChannelSwitcher channel={channel} channels={channels} showPublic={showPublicChannels} onShowPublic={onShowPublicChannels} onSelect={onSelectChannel} onCreate={onCreateChannel} onRename={onRenameChannel} onDelete={deleteStorageChannel} onManage={onChangeChannel} /></div></div>
-          <label className="search-box mobile-search"><SearchIcon /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label>
+          <label className="search-box mobile-search"><SearchIcon /><input ref={searchInputRef} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files (press /)" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label>
           <div className="mobile-tools"><button className={viewMode === "grid" ? "active" : ""} onClick={() => setViewMode((value) => value === "grid" ? "list" : "grid")} aria-pressed={viewMode === "grid"}>{viewMode === "grid" ? "☷ List view" : "▦ Grid view"}</button><button className={groupByMonth ? "active" : ""} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth}><CalendarIcon />{groupByMonth ? "Grouped" : "By month"}</button><button onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon />{sortOrder === "newest" ? "Newest" : "Oldest"}</button><button className={favoritesOnly ? "active" : ""} onClick={() => { setFavoritesOnly((value) => !value); setActiveAlbumId(undefined); }} aria-pressed={favoritesOnly}>★ Favorites</button><button onClick={() => setShowInsights(true)}>Insights</button><button className={selectionMode ? "active" : ""} onClick={toggleSelectionMode} aria-pressed={selectionMode}><CheckIcon />{selectionMode ? "Cancel" : "Select"}</button></div>
         </header>
         <header className="drive-header desktop-drive-header">
