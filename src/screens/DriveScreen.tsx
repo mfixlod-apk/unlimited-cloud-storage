@@ -1591,8 +1591,8 @@ function MemoryGallery({ items, channel, fileLabels, groupByMonth, viewMode, sor
       const chunk = group.items.slice(index * chunkSize, (index + 1) * chunkSize);
       const currentIndex = chunkIndex++;
       const isLastChunk = groupIndex === groups.length - 1 && index === chunkCount - 1;
-      const placeholderCount = hasMore && isLastChunk ? (layout.columns - chunk.length % layout.columns) % layout.columns : 0;
-      const estimatedHeight = Math.ceil((chunk.length + placeholderCount) / layout.columns) * layout.rowHeight;
+      const placeholderCount = viewMode === "grid" && hasMore && isLastChunk ? (layout.columns - chunk.length % layout.columns) % layout.columns : 0;
+      const estimatedHeight = viewMode === "list" ? chunk.length * 86 : Math.ceil((chunk.length + placeholderCount) / layout.columns) * layout.rowHeight;
       return <VirtualGalleryChunk key={`${group.key}:${index}`} viewMode={viewMode} items={chunk} fileLabels={fileLabels} channel={channel} paused={paused} selectionMode={selectionMode} selectedIds={selectedIds} favoriteIds={favoriteIds} onToggleFavorite={onToggleFavorite} placeholderCount={placeholderCount} initiallyActive={currentIndex < 2} estimatedHeight={estimatedHeight} prefetchPx={prefetchPx} onOpen={onOpen} onToggleSelection={onToggleSelection} onDownload={onDownload} onDelete={onDelete} />;
     })}</div></section>;
   })}</div>;
