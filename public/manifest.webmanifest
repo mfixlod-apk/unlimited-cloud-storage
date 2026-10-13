@@ -1,7 +1,7 @@
 {
-  "name": "MFIX Cloud",
-  "short_name": "MFIX Cloud",
-  "description": "Your private Telegram-backed photo and video vault.",
+  "name": "Unlimited Cloud Storage",
+  "short_name": "Cloud Storage",
+  "description": "Your private, browser-only Telegram-backed cloud drive.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
