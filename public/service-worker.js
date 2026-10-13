@@ -1,4 +1,4 @@
-const CACHE_NAME = "mfix-cloud-shell-v45";
+const CACHE_NAME = "unlimited-cloud-storage-shell-v44";
 const DEVELOPMENT = new URL(self.location.href).searchParams.has("dev");
 const STREAM_PATH = "/__telegram_stream__/";
 const STREAM_CHUNK_SIZE = 1024 * 1024;
@@ -29,7 +29,7 @@ self.addEventListener("activate", (event) => {
     caches.keys()
       .then((keys) => Promise.all(
         keys
-          .filter((key) => key.startsWith("mfix-cloud-") && key !== CACHE_NAME)
+          .filter((key) => key.startsWith("unlimited-cloud-storage-") && key !== CACHE_NAME)
           .map((key) => caches.delete(key)),
       ))
       .then(() => self.clients.claim()),
