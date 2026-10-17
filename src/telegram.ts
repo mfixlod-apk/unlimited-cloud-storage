@@ -694,7 +694,7 @@ export class TelegramDrive {
     return {
       id: Number(message.id),
       channelId,
-      name: file?.name ? name : `${kind}-${message.id}${fallbackExtension}`,
+      name: file?.name || telegramAttributeName ? name : `${kind}-${message.id}${fallbackExtension || fallbackMimeExtension}`,
       kind,
       mime,
       size: asNumber(file?.size),
