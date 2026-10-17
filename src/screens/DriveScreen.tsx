@@ -1463,6 +1463,13 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
           <MemoryGallery viewMode={viewMode} fileLabels={galleryMetadata.fileLabels || {}} items={visibleItems} channel={channel} groupByMonth={groupByMonth} sortOrder={sortOrder} memoryLimitMb={effectiveMemoryMb} hasMore={hasMore} paused={Boolean(selected)} selectionMode={selectionMode} selectedIds={checkedIds} favoriteIds={new Set(galleryMetadata.favoriteIds)} onToggleFavorite={toggleFavorite} onOpen={setSelected} onToggleSelection={toggleChecked} onDownload={downloadItem} onDelete={deleteItem} />
         ) : <EmptyState hasItems={items.length > 0} onUpload={openSync} />}
         <div ref={sentinel} className="scroll-sentinel">{loadingMore && <><span className="spinner" />{search.trim() ? "Searching older files…" : "Loading older files…"}</>}{!hasMore && items.length > 0 && <span>You've reached the beginning.</span>}</div>
+        <nav className="ios-tabbar" aria-label="Main navigation">
+          <button className={filter === "all" ? "active" : ""} onClick={() => { setFilter("all"); setFavoritesOnly(false); setActiveAlbumId(undefined); }} aria-current={filter === "all" ? "page" : undefined}><GridIcon /><span>Library</span></button>
+          <button className={filter === "image" ? "active" : ""} onClick={() => { setFilter("image"); setFavoritesOnly(false); setActiveAlbumId(undefined); }} aria-current={filter === "image" ? "page" : undefined}><ImageIcon /><span>Photos</span></button>
+          <button className="ios-tabbar-upload" onClick={openSync} aria-label="Add photos and videos"><PlusIcon /><span>Add</span></button>
+          <button className={filter === "video" ? "active" : ""} onClick={() => { setFilter("video"); setFavoritesOnly(false); setActiveAlbumId(undefined); }} aria-current={filter === "video" ? "page" : undefined}><VideoIcon /><span>Videos</span></button>
+          <button onClick={() => setSettings(true)}><SettingsIcon /><span>Settings</span></button>
+        </nav>
       </main>
       {dragging && <div className="drop-overlay" onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={onDrop}><div><UploadIcon /><h2>Drop to upload</h2><p>Files go directly to {channel.title}</p></div></div>}
       {showSyncChooser && <SyncChooser supportsDirectory={directoryPickerSupported} pendingCount={uploadSnapshot.pending} totalCount={uploadSnapshot.total} onPhotos={() => mediaInput.current?.click()} onFiles={() => fileInput.current?.click()} onDirectory={() => void selectDirectory()} onGooglePhotos={() => { setShowSyncChooser(false); setShowGooglePhotos(true); }} onClose={() => setShowSyncChooser(false)} />}
