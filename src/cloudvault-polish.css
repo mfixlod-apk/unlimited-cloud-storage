@@ -376,3 +376,41 @@ button, input, select, textarea { transition: background-color .18s ease, border
   .folder-tile, .library-stat-card, .media-card { transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
   .library-stat-card:hover { transform: translateY(-2px); }
 }
+
+
+/* Critical mobile fix: older gallery rules hide all .media-info on phones.
+   Documents must always show their filename and type below the thumbnail. */
+@media (max-width: 640px) {
+  .gallery .media-card.document-card .media-info,
+  .gallery-groups .media-card.document-card .media-info,
+  .month-groups .media-card.document-card .media-info {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start;
+    gap: 5px;
+    min-width: 0;
+    padding: 9px 4px 8px !important;
+    overflow: visible;
+    text-align: left;
+  }
+  .media-card.document-card .media-info > strong {
+    display: -webkit-box !important;
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    color: var(--ink) !important;
+    font-size: 12px !important;
+    font-weight: 750 !important;
+    line-height: 1.35;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+  .media-card.document-card .media-info .file-type-label,
+  .media-card.document-card .media-info > small {
+    display: block !important;
+    font-size: 10px !important;
+    line-height: 1.35;
+  }
+}
