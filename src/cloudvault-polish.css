@@ -635,3 +635,137 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     padding: 16px;
   }
 }
+
+
+/* Mobile layout cleanup: preserve all handlers/features while removing duplicate
+   navigation/actions and reducing the oversized overview panel. */
+@media (max-width: 640px) {
+  /* Bottom iOS bar already provides Library / Photos / Videos / Settings / Add. */
+  .mobile-tabs { display: none !important; }
+
+  /* Add and Settings are already available in the persistent bottom navigation. */
+  .mobile-app-actions .mobile-upload,
+  .mobile-app-actions .mobile-settings { display: none !important; }
+
+  .mobile-drive-nav {
+    padding: max(8px, env(safe-area-inset-top)) 14px 10px !important;
+    background: var(--page) !important;
+    border-bottom: 1px solid var(--line);
+  }
+  .mobile-app-bar { min-height: 34px; }
+  .mobile-wordmark { font-size: 13px; gap: 7px; }
+  .mobile-wordmark svg { width: 20px; height: 20px; }
+  .mobile-title-row { margin-top: 8px; margin-bottom: 10px; }
+  .mobile-title-row h1 { font-size: 25px; line-height: 1.12; }
+  .mobile-title-row p { margin-top: 3px; font-size: 11px; }
+
+  .mobile-search {
+    min-height: 42px;
+    margin: 0 0 9px;
+    border-radius: 14px;
+  }
+  .mobile-tools {
+    display: flex;
+    gap: 7px;
+    margin: 0;
+    padding: 0 0 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .mobile-tools::-webkit-scrollbar { display: none; }
+  .mobile-tools button,
+  .mobile-tools .file-sort-control {
+    min-height: 31px;
+    flex: 0 0 auto;
+    padding: 0 10px;
+    border-radius: 999px;
+    font-size: 10px;
+  }
+
+  .library-stats {
+    margin: 12px 12px 14px !important;
+    padding: 13px !important;
+    border-radius: 20px !important;
+    background: #171719 !important;
+    border-color: #303035 !important;
+  }
+  .library-stats-heading { margin-bottom: 10px !important; gap: 8px; }
+  .library-stats-heading h2 { margin-top: 2px; font-size: 16px !important; }
+  .library-stats-eyebrow { font-size: 8px; }
+  .library-stats-subtitle { font-size: 9px; }
+  .library-connection { padding: 5px 7px; font-size: 9px; }
+  .library-stats-grid { gap: 6px !important; }
+  .library-stat-card {
+    min-height: 91px !important;
+    padding: 9px 8px !important;
+    border-radius: 15px !important;
+    background: #1e1e20 !important;
+    border-color: #303035 !important;
+  }
+  .library-stat-icon { width: 25px; height: 25px; margin-bottom: 6px; }
+  .library-stat-label { font-size: 9px; }
+  .library-stat-card > strong { margin-top: 3px; font-size: clamp(15px, 4.6vw, 19px) !important; }
+  .library-stat-card > small { margin-top: 2px; font-size: 8px; line-height: 1.25; }
+  .library-stats-footer { margin-top: 9px !important; padding-top: 9px !important; gap: 7px; }
+  .library-upload-pulse { width: 27px; height: 27px; flex-basis: 27px; }
+  .library-stats-footer strong { font-size: 10px; }
+  .library-stats-footer small { font-size: 9px; }
+  .library-stats-footer > button { max-width: 90px; padding-left: 4px; font-size: 9px; }
+  .library-stats-actions { margin-top: 8px !important; gap: 7px; }
+  .library-scan-button { min-height: 31px; padding: 0 10px; font-size: 10px; }
+  .library-stats-actions > span { font-size: 9px; }
+  /* The long explanation repeats the scan button's purpose and pushes the files
+     far below the fold on an iPhone. Keep it available on wider screens. */
+  .library-stats-note { display: none !important; }
+  .library-scan-progress { margin-top: 8px; padding: 8px; }
+
+  .folder-toolbar {
+    margin: 0 12px 16px !important;
+    padding: 13px !important;
+    border-radius: 20px !important;
+    background: #171719 !important;
+    border-color: #303035 !important;
+  }
+  .folder-toolbar-title { margin-bottom: 9px; }
+  .folder-toolbar-title strong { font-size: 16px; }
+  .folder-toolbar-actions { gap: 7px; }
+  .folder-toolbar-actions .secondary-button {
+    min-height: 34px;
+    padding: 0 10px;
+    border-radius: 11px;
+    font-size: 10px;
+  }
+  .folder-list { gap: 8px; margin-top: 10px; }
+  .folder-tile {
+    min-height: 104px;
+    padding: 13px !important;
+    border-radius: 16px !important;
+    background: #1e1e20 !important;
+    border-color: #303035 !important;
+  }
+  .folder-tile > span { font-size: 25px; }
+  .folder-tile strong { font-size: 13px; line-height: 1.3; overflow-wrap: anywhere; }
+  .folder-tile small { margin-top: 4px; font-size: 10px; }
+
+  .month-groups { padding-left: 12px !important; padding-right: 12px !important; }
+  .month-group > h2 { margin-left: 3px !important; margin-right: 3px !important; font-size: 18px !important; }
+  .ios-tabbar {
+    left: 10px !important;
+    right: 10px !important;
+    bottom: max(8px, env(safe-area-inset-bottom)) !important;
+    min-height: calc(66px + env(safe-area-inset-bottom));
+    border-radius: 26px !important;
+    background: rgba(20, 20, 22, .96) !important;
+    border: 1px solid #303035 !important;
+  }
+  .ios-tabbar > button { font-size: 10px; }
+  .ios-tabbar > .ios-tabbar-upload svg {
+    width: 25px !important;
+    height: 25px !important;
+    padding: 5px;
+    border-radius: 12px;
+    background: #65d7ff !important;
+    color: #001018 !important;
+    box-shadow: none !important;
+  }
+}
