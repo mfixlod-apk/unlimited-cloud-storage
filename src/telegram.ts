@@ -137,6 +137,57 @@ export class TelegramDrive {
   private credentials?: TelegramCredentials;
   private messageCache = new Map<string, any>();
   private progressiveStreams = new Map<string, ProgressiveStreamEntry>();
+  private activeThumbnailRequests = 0;
+  private readonly maxConcurrentThumbnailRequests = 3;
+  private thumbnailQueue: Array<{
+    signal?: AbortSignal;
+    resolve: (release: () => void) => void;
+    reject: (reason: unknown) => void;
+    onAbort?: () => void;
+  }> = [];
+
+  private acquireThumbnailSlot(signal?: AbortSignal): Promise<() => void> {
+    if (signal?.aborted) return Promise.reject(new DOMException("Thumbnail cancelled", "AbortError"));
+    return new Promise((resolve, reject) => {
+      const entry: (typeof this.thumbnailQueue)[number] = { signal, resolve, reject };
+      if (signal) {
+        entry.onAbort = () => {
+          const index = this.thumbnailQueue.indexOf(entry);
+          if (index >= 0) {
+            this.thumbnailQueue.splice(index, 1);
+            reject(new DOMException("Thumbnail cancelled", "AbortError"));
+          }
+        };
+        signal.addEventListener("abort", entry.onAbort, { once: true });
+      }
+      if (this.activeThumbnailRequests < this.maxConcurrentThumbnailRequests) {
+        this.activeThumbnailRequests += 1;
+        if (entry.onAbort && signal) signal.removeEventListener("abort", entry.onAbort);
+        resolve(this.createThumbnailRelease());
+      } else {
+        this.thumbnailQueue.push(entry);
+      }
+    });
+  }
+
+  private createThumbnailRelease(): () => void {
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.activeThumbnailRequests = Math.max(0, this.activeThumbnailRequests - 1);
+      while (this.thumbnailQueue.length && this.activeThumbnailRequests < this.maxConcurrentThumbnailRequests) {
+        const next = this.thumbnailQueue.shift()!;
+        if (next.onAbort && next.signal) next.signal.removeEventListener("abort", next.onAbort);
+        if (next.signal?.aborted) {
+          next.reject(new DOMException("Thumbnail cancelled", "AbortError"));
+          continue;
+        }
+        this.activeThumbnailRequests += 1;
+        next.resolve(this.createThumbnailRelease());
+      }
+    };
+  }
 
   constructor() {
     if ("serviceWorker" in navigator) {
@@ -353,6 +404,15 @@ export class TelegramDrive {
   }
 
   async getThumbnail(channel: CloudChannel, item: CloudItem, signal?: AbortSignal, fallback = false): Promise<Blob | undefined> {
+    const release = await this.acquireThumbnailSlot(signal);
+    try {
+      return await this.getThumbnailWithSlot(channel, item, signal, fallback);
+    } finally {
+      release();
+    }
+  }
+
+  private async getThumbnailWithSlot(channel: CloudChannel, item: CloudItem, signal?: AbortSignal, fallback = false): Promise<Blob | undefined> {
     // v2 invalidates the former smallest-size thumbnails.
     const key = thumbnailCacheKey(item.channelId, item.id);
     const cached = fallback ? undefined : await localStore.getThumbnail(key);
