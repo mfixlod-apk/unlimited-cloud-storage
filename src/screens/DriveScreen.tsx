@@ -549,7 +549,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     const album = galleryMetadata.albums.find((entry) => entry.id === activeAlbumId);
     const albumSet = album ? new Set(album.itemIds) : undefined;
     const vaultItemIds = new Set(galleryMetadata.albums.filter((entry) => folderIsVaultProtected(entry)).flatMap((entry) => entry.itemIds));
-    return items.filter((item) => { const label = galleryMetadata.fileLabels?.[item.id]; const searchable = [item.name, label?.title, label?.note, ...(label?.tags || [])].filter(Boolean).join(" ").toLocaleLowerCase(); return (activeAlbumId ? Boolean(albumSet?.has(item.id)) : !vaultItemIds.has(item.id)) && (filter === "all" || item.kind === filter) && (!query || searchable.includes(query)) && (!favoritesOnly || favoriteSet.has(item.id)); });
+    return items.filter((item) => { const label = galleryMetadata.fileLabels?.[item.id]; const searchable = [item.name, fileTypeLabel(item), label?.title, label?.note, ...(label?.tags || [])].filter(Boolean).join(" ").toLocaleLowerCase(); return (activeAlbumId ? Boolean(albumSet?.has(item.id)) : !vaultItemIds.has(item.id)) && (filter === "all" || item.kind === filter) && (!query || searchable.includes(query)) && (!favoritesOnly || favoriteSet.has(item.id)); });
   }, [items, filter, search, galleryMetadata, favoritesOnly, activeAlbumId]);
 
   useEffect(() => {
