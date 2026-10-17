@@ -115,3 +115,56 @@
   .ios-tabbar button.active { color: var(--accent); }
   .ios-tabbar-upload { color: white !important; }
 }
+
+/* Final iPhone/PWA pass: safe-area spacing, touch behavior and reduced motion. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overscroll-behavior-y: contain;
+}
+button, input, select, textarea {
+  font: inherit;
+}
+button, .media-open, .folder-tile, .ios-tabbar button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+img, video {
+  -webkit-user-drag: none;
+}
+@supports (padding: max(0px)) {
+  .ios-tabbar {
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  .viewer-backdrop {
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  .mobile-drive-nav {
+    padding-top: max(0px, env(safe-area-inset-top));
+  }
+}
+@media (max-width: 640px) {
+  .viewer {
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 12px);
+  }
+  .viewer-content {
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .media-card, .folder-tile, .library-stat-card {
+    -webkit-tap-highlight-color: transparent;
+  }
+  input, select, textarea {
+    font-size: max(16px, 1em);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
