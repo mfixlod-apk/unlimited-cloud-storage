@@ -679,7 +679,6 @@ export class TelegramDrive {
       attribute instanceof Api.DocumentAttributeFilename || attribute?.className === "DocumentAttributeFilename" || attribute?.constructor?.name === "DocumentAttributeFilename"
     ) as any;
     const telegramAttributeName = attributeName?.fileName || attributeName?.file_name;
-    const mimeExtension = mime.match(/^(?:application|audio|image|video)\\/([a-z0-9.+-]+)/i)?.[1]?.replace("pdf", "pdf");
     const fallbackMimeExtension = mime === "application/pdf" ? ".pdf" : mime === "application/zip" ? ".zip" : "";
     const name = safeFileName(file?.name || telegramAttributeName, `file-${message.id}${fallbackExtension || fallbackMimeExtension}`);
     const extension = fileExtension(name);
