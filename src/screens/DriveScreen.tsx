@@ -1830,7 +1830,7 @@ function Thumbnail({ channel, item, paused }: { channel: CloudChannel; item: Clo
   }, [channel, item.id, paused, inRange, retry]);
   const Placeholder = item.kind === "video" ? VideoIcon : item.kind === "audio" ? MusicIcon : item.kind === "image" ? ImageIcon : FileIcon;
   const failed = () => { setUrl(""); if (retry < 1) { setLoaded(false); setRetry(1); } else setLoaded(true); };
-  return <div ref={containerRef} className={`thumbnail ${loaded ? "loaded" : ""}`}>{url ? <img src={url} alt="" loading="lazy" onError={failed} /> : <Placeholder />}{item.kind === "video" && <span className="play-badge">▶</span>}</div>;
+  return <div ref={containerRef} className={`thumbnail ${loaded ? "loaded" : ""}`}>{url ? <img src={url} alt="" loading="lazy" onError={failed} /> : <Placeholder />}{item.kind === "video" && <span className="play-badge">▶</span>}{(item.kind === "file" || item.kind === "audio") && <span className="file-extension-badge">{fileTypeLabel(item)}</span>}</div>;
 }
 
 function MediaCard({ channel, item, displayLabel, pauseThumbnail, selectionMode, selected, favorite, viewMode, onToggleFavorite, onOpen, onToggleSelection, onDownload, onDelete }: { channel: CloudChannel; item: CloudItem; displayLabel?: { title: string; tags: string[]; note?: string }; viewMode: "grid" | "list"; pauseThumbnail: boolean; selectionMode: boolean; selected: boolean; favorite: boolean; onToggleFavorite: () => void; onOpen: () => void; onToggleSelection: () => void; onDownload: () => void; onDelete: () => void }) {
