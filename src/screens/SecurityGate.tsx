@@ -30,6 +30,19 @@ export function SecurityGate({ children }: { children: ReactNode }) {
   const lastActivity = useRef(Date.now());
 
   useEffect(() => {
+    const openSettings = () => {
+      if (!locked && !setupMode) {
+        setShowSettings(true);
+        setPin("");
+        setConfirmPin("");
+        setError("");
+      }
+    };
+    window.addEventListener("open-security-settings", openSettings);
+    return () => window.removeEventListener("open-security-settings", openSettings);
+  }, [locked, setupMode]);
+
+  useEffect(() => {
     let active = true;
     void localStore.getSecurityConfig().then((saved) => {
       if (!active) return;
@@ -118,6 +131,6 @@ export function SecurityGate({ children }: { children: ReactNode }) {
         {locked && <small>PIN protection is local to this browser and is not an account-level security boundary.</small>}
       </section>
     </div>}
-    {!showGate && <button className="security-manage-button" onClick={() => { setShowSettings(true); setPin(""); setConfirmPin(""); setError(""); }} aria-label="Security settings" title="Security settings">🔒</button>}
+
   </>;
 }
