@@ -1420,3 +1420,57 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
     to { opacity: 1; transform: translateY(0); }
   }
 }
+
+
+/* Library overview — live, honest storage figures with an iOS Photos-inspired finish */
+.library-stats {
+  margin: 0 18px 22px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 24px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--surface) 96%, white), color-mix(in srgb, var(--soft) 38%, var(--surface)));
+  box-shadow: 0 12px 34px rgba(28, 27, 22, .045);
+}
+.library-stats-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:15px; }
+.library-stats-eyebrow { display:block; color:var(--muted); font-size:9px; font-weight:800; letter-spacing:.13em; }
+.library-stats-heading h2 { margin:4px 0 0; font-size:20px; letter-spacing:-.045em; line-height:1.15; }
+.library-connection { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; padding:6px 9px; border:1px solid var(--line); border-radius:999px; color:var(--muted); font-size:10px; font-weight:650; }
+.library-connection i { width:6px; height:6px; border-radius:50%; background:#a4a4a0; }
+.library-connection.is-online i { background:#30b56b; box-shadow:0 0 0 3px rgba(48,181,107,.12); }
+.library-stats-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; }
+.library-stat-card { display:flex; min-width:0; flex-direction:column; align-items:flex-start; padding:12px 11px; border:1px solid color-mix(in srgb,var(--line) 72%,transparent); border-radius:17px; background:var(--surface); }
+.library-stat-icon { display:grid; place-items:center; width:29px; height:29px; margin-bottom:10px; border-radius:10px; }
+.library-stat-icon svg { width:15px; height:15px; }
+.photo-stat { color:#d65d91; background:rgba(214,93,145,.12); }
+.video-stat { color:#7b6ce0; background:rgba(123,108,224,.12); }
+.storage-stat-icon { color:var(--accent); background:var(--accent-soft); }
+.library-stat-label { color:var(--muted); font-size:10px; font-weight:600; line-height:1.3; }
+.library-stat-card > strong { display:block; max-width:100%; margin-top:4px; overflow:hidden; text-overflow:ellipsis; font-size:clamp(17px,2.2vw,24px); font-weight:800; letter-spacing:-.055em; font-variant-numeric:tabular-nums; }
+.library-stat-card > small { margin-top:4px; color:var(--muted); font-size:9px; line-height:1.35; }
+.library-stats-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px; padding-top:13px; border-top:1px solid color-mix(in srgb,var(--line) 72%,transparent); }
+.library-stats-footer > div { display:flex; min-width:0; align-items:center; gap:9px; }
+.library-upload-pulse { display:grid; place-items:center; flex:0 0 32px; width:32px; height:32px; border-radius:11px; color:var(--accent); background:var(--accent-soft); }
+.library-upload-pulse svg { width:15px; height:15px; }
+.library-stats-footer strong,.library-stats-footer small { display:block; }
+.library-stats-footer strong { font-size:11px; line-height:1.35; }
+.library-stats-footer small { margin-top:3px; color:var(--muted); font-size:10px; }
+.library-stats-footer > button { display:flex; flex:0 0 auto; align-items:center; gap:4px; border:0; padding:8px 0 8px 8px; background:transparent; color:var(--accent); font-size:10px; font-weight:750; }
+.library-stats-footer > button svg { width:13px; height:13px; transform:rotate(-90deg); }
+.library-stats-note { margin:10px 1px 0; color:var(--muted); font-size:10px; line-height:1.45; }
+@media (max-width:640px) {
+  .library-stats { margin: 0 13px 19px; padding:15px; border-radius:22px; }
+  .library-stats-heading { margin-bottom:12px; }
+  .library-stats-heading h2 { font-size:19px; }
+  .library-stats-grid { gap:6px; }
+  .library-stat-card { padding:10px 8px; border-radius:15px; }
+  .library-stat-icon { width:27px; height:27px; margin-bottom:8px; }
+  .library-stat-label { font-size:9px; }
+  .library-stat-card > strong { font-size:clamp(16px,5vw,21px); }
+  .library-stat-card > small { font-size:8px; }
+  .library-stats-footer { align-items:flex-start; }
+  .library-stats-footer > button { max-width:104px; white-space:normal; text-align:right; line-height:1.3; }
+}
+@media (max-width:360px) {
+  .library-stats-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .library-stat-card.storage-stat { grid-column:1 / -1; }
+}
