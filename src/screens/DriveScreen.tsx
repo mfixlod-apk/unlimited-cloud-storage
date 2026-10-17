@@ -1835,11 +1835,20 @@ function Thumbnail({ channel, item, paused }: { channel: CloudChannel; item: Clo
 
 function MediaCard({ channel, item, displayLabel, pauseThumbnail, selectionMode, selected, favorite, viewMode, onToggleFavorite, onOpen, onToggleSelection, onDownload, onDelete }: { channel: CloudChannel; item: CloudItem; displayLabel?: { title: string; tags: string[]; note?: string }; viewMode: "grid" | "list"; pauseThumbnail: boolean; selectionMode: boolean; selected: boolean; favorite: boolean; onToggleFavorite: () => void; onOpen: () => void; onToggleSelection: () => void; onDownload: () => void; onDelete: () => void }) {
   const [menu, setMenu] = useState(false);
+  const [copiedName, setCopiedName] = useState(false);
+  const copyFilename = async () => {
+    try {
+      await navigator.clipboard.writeText(item.name);
+      setCopiedName(true);
+    } catch {
+      window.prompt("Copy the original filename", item.name);
+    }
+  };
   return <article className={`media-card ${viewMode === "list" ? "list-view" : ""} ${item.kind === "file" || item.kind === "audio" ? "document-card" : ""} ${selected ? "selection-selected" : ""}`}>
     <button className="media-open" onClick={selectionMode ? onToggleSelection : onOpen} aria-pressed={selectionMode ? selected : undefined}><Thumbnail channel={channel} item={item} paused={pauseThumbnail} /><span className="media-info"><strong title={item.name}>{item.name}</strong>{(item.kind === "file" || item.kind === "audio") && <small className="file-type-label">{fileTypeLabel(item)} file</small>}<small>{formatDate(item.date)} · {formatSize(item.size)}</small>{Boolean(displayLabel?.tags?.length) && <span className="media-tags">{displayLabel!.tags.slice(0, 3).map((tag) => <small key={tag}>#{tag.replace(/^#/, "")}</small>)}</span>}</span></button>
     {selectionMode && <span className={`selection-check ${selected ? "checked" : ""}`} aria-hidden="true">{selected && <CheckIcon />}</span>}
     {!selectionMode && <button className="card-menu" aria-label={`Actions for ${item.name}`} onClick={() => setMenu((value) => !value)}><MoreIcon /></button>}
-    {!selectionMode && menu && <div className="action-menu" onMouseLeave={() => setMenu(false)}><button onClick={() => { setMenu(false); onToggleFavorite(); }}>{favorite ? "★ Remove favorite" : "☆ Add to favorites"}</button><button onClick={() => { setMenu(false); void navigator.clipboard?.writeText(item.name).then(() => window.alert("Filename copied to clipboard.")).catch(() => window.alert(item.name)); }}>Copy filename</button><button onClick={() => { setMenu(false); onDownload(); }}><DownloadIcon />Download</button><button className="danger" onClick={() => { setMenu(false); onDelete(); }}><TrashIcon />Delete</button></div>}
+    {!selectionMode && menu && <div className="action-menu" onMouseLeave={() => setMenu(false)}><button onClick={() => { setMenu(false); onToggleFavorite(); }}>{favorite ? "★ Remove favorite" : "☆ Add to favorites"}</button><button onClick={() => { setMenu(false); void copyFilename(); }}>{copiedName ? "Filename copied" : "Copy filename"}</button><button onClick={() => { setMenu(false); onDownload(); }}><DownloadIcon />Download</button><button className="danger" onClick={() => { setMenu(false); onDelete(); }}><TrashIcon />Delete</button></div>}
   </article>;
 }
 
