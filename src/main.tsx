@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import { Buffer } from "buffer";
 import App from "./App";
 import "./styles.css";
+import "./document-filename-polish.css";
 
 globalThis.Buffer = Buffer;
 
