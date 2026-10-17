@@ -390,6 +390,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
   const [downloadEntry, setDownloadEntry] = useState<DownloadEntry>();
   const [dragging, setDragging] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
+  const [libraryScan, setLibraryScan] = useState<{ running: boolean; scanned: number; photos: number; videos: number; documents: number; bytes: number; complete: boolean; error?: string }>({ running: false, scanned: 0, photos: 0, videos: 0, documents: 0, bytes: 0, complete: false });
   const searchInputRef = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const mediaInput = useRef<HTMLInputElement>(null);
@@ -1038,6 +1039,37 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     setShowUploadPanel(false);
   };
 
+  const scanEntireLibrary = async () => {
+    if (libraryScan.running) return;
+    setLibraryScan({ running: true, scanned: 0, photos: 0, videos: 0, documents: 0, bytes: 0, complete: false });
+    let offset = 0;
+    let scanned = 0;
+    let photos = 0;
+    let videos = 0;
+    let documents = 0;
+    let bytes = 0;
+    try {
+      let hasMorePages = true;
+      while (hasMorePages) {
+        const page = await telegramDrive.getHistory(channel, offset, 100, false);
+        for (const item of page.items) {
+          scanned += 1;
+          if (item.kind === "image") photos += 1;
+          else if (item.kind === "video") videos += 1;
+          else documents += 1;
+          bytes += Math.max(0, item.size || 0);
+        }
+        setLibraryScan({ running: true, scanned, photos, videos, documents, bytes, complete: false });
+        if (!page.hasMore || page.nextOffset <= offset) break;
+        offset = page.nextOffset;
+        hasMorePages = page.hasMore;
+      }
+      setLibraryScan({ running: false, scanned, photos, videos, documents, bytes, complete: true });
+    } catch (cause) {
+      setLibraryScan({ running: false, scanned, photos, videos, documents, bytes, complete: false, error: friendlyError(cause) });
+    }
+  };
+
   const openSync = () => {
     setShowSyncChooser(true);
   };
@@ -1467,15 +1499,17 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     const photos = items.filter((item) => item.kind === "image");
     const videos = items.filter((item) => item.kind === "video");
     const documents = items.filter((item) => item.kind === "file" || item.kind === "audio");
+    const uploaded = Array.from(uploadRecords.current.values()).filter((record) => record.channelId === channel.id && record.status === "done");
     return {
-      photos: photos.length,
-      videos: videos.length,
-      documents: documents.length,
-      bytes: items.reduce((total, item) => total + Math.max(0, item.size || 0), 0),
-      uploadedThisDevice: Array.from(uploadRecords.current.values()).filter((record) => record.channelId === channel.id && record.status === "done").length,
-      uploadedBytesThisDevice: Array.from(uploadRecords.current.values()).filter((record) => record.channelId === channel.id && record.status === "done").reduce((total, record) => total + Math.max(0, record.size || 0), 0),
+      photos: libraryScan.complete ? libraryScan.photos : photos.length,
+      videos: libraryScan.complete ? libraryScan.videos : videos.length,
+      documents: libraryScan.complete ? libraryScan.documents : documents.length,
+      bytes: libraryScan.complete ? libraryScan.bytes : items.reduce((total, item) => total + Math.max(0, item.size || 0), 0),
+      scanned: libraryScan.complete ? libraryScan.scanned : items.length,
+      uploadedThisDevice: uploaded.length,
+      uploadedBytesThisDevice: uploaded.reduce((total, record) => total + Math.max(0, record.size || 0), 0),
     };
-  }, [items, channel.id, uploadSnapshot.done, uploadSnapshot.total]);
+  }, [items, channel.id, uploadSnapshot.done, uploadSnapshot.total, libraryScan]);
   const directoryPickerSupported = typeof (window as SaveFilePickerWindow).showDirectoryPicker === "function" || "webkitdirectory" in document.createElement("input");
 
   return (
@@ -1501,7 +1535,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
         <div className="mobile-tabs">{tabs.map(({ value, label }) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div>
         <section className="library-stats" aria-label="Library storage statistics">
           <div className="library-stats-heading">
-            <div><span className="library-stats-eyebrow">YOUR MEMORY, IN ONE PLACE</span><h2>Library overview</h2></div>
+            <div><span className="library-stats-eyebrow">YOUR MEMORY, IN ONE PLACE</span><h2>Library overview</h2><small className="library-stats-subtitle">{libraryScan.complete ? "Full library scan completed" : `${libraryStats.scanned.toLocaleString()} files counted so far`}</small></div>
             <span className={online ? "library-connection is-online" : "library-connection"}><i />{online ? "Connected" : "Offline"}</span>
           </div>
           <div className="library-stats-grid">
@@ -1513,7 +1547,10 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
             <div><span className="library-upload-pulse"><UploadIcon /></span><span><strong>{libraryStats.uploadedThisDevice.toLocaleString()} uploads completed on this device</strong><small>{formatSize(libraryStats.uploadedBytesThisDevice)} across the saved upload history</small></span></div>
             <button onClick={() => setShowUploadPanel(true)}>{queueHasWork ? "View upload progress" : "Upload status"} <ChevronIcon /></button>
           </div>
-          {hasMore && <p className="library-stats-note">Storage is calculated from files loaded from Telegram so far. Scroll through the library to load older items and update these figures.</p>}
+          {libraryScan.running && <div className="library-scan-progress"><div><span>Scanning Telegram library…</span><strong>{libraryScan.scanned.toLocaleString()} files checked</strong></div><progress max={Math.max(100, libraryScan.scanned + 100)} value={libraryScan.scanned} /></div>}
+          {libraryScan.error && <p className="library-stats-note" role="status">The full scan stopped: {libraryScan.error}</p>}
+          <div className="library-stats-actions"><button className="library-scan-button" onClick={() => void scanEntireLibrary()} disabled={libraryScan.running}>{libraryScan.running ? "Scanning library…" : libraryScan.complete ? "Scan again" : "Calculate full library size"}</button><span>{libraryScan.complete ? "Full channel history counted" : "Scans the channel without downloading media"}</span></div>
+          {!libraryScan.complete && <p className="library-stats-note">Before a full scan, these figures cover loaded items only. The full scan reads Telegram's file list and sizes; it does not download the original media.</p>}
         </section>
         <section className="folder-toolbar" aria-label="Folders">
           <div className="folder-toolbar-title"><strong>{activeAlbumId ? (galleryMetadata.albums.find((entry) => entry.id === activeAlbumId)?.title || "Folder") : "My folders"}</strong>{activeAlbumId && <button className="secondary-button" onClick={() => { const current = galleryMetadata.albums.find((entry) => entry.id === activeAlbumId); setActiveAlbumId(current?.parentId); setVaultUnlocked(false); }}>← Back</button>}</div>
