@@ -885,3 +885,106 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     min-height: 0 !important;
   }
 }
+
+
+/* Final Telephoto-inspired pass: consistent touch targets, legible document
+   cards, and a viewer that respects iPhone safe areas. No data or upload logic. */
+:root {
+  --tap-target: 44px;
+}
+.media-card {
+  min-width: 0;
+  overflow: hidden;
+  transition: border-color .16s ease, background-color .16s ease, transform .16s ease;
+}
+.media-card .media-info {
+  min-width: 0;
+}
+.media-card .media-info strong {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.35;
+}
+.document-card .thumbnail {
+  display: grid;
+  place-items: center;
+}
+.document-card .thumbnail > svg {
+  width: 36px;
+  height: 36px;
+}
+.document-card .file-extension-badge {
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.viewer {
+  min-width: 0;
+  overflow: hidden;
+}
+.viewer > header > div:first-child strong {
+  overflow-wrap: anywhere;
+}
+.viewer .viewer-actions button {
+  touch-action: manipulation;
+}
+.viewer-document-preview {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.viewer-document-preview iframe {
+  color-scheme: light;
+}
+@media (hover: hover) and (pointer: fine) {
+  .media-card:hover {
+    border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  }
+}
+@media (max-width: 640px) {
+  .drive-content { padding-bottom: calc(94px + env(safe-area-inset-bottom)) !important; }
+  .media-card { border-radius: 17px; }
+  .media-card .media-info strong { font-size: 12px; }
+  .media-card .media-info small { font-size: 10px; }
+  .viewer-backdrop {
+    padding-top: env(safe-area-inset-top) !important;
+    padding-bottom: env(safe-area-inset-bottom) !important;
+  }
+  .viewer {
+    height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom)) !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+  }
+  .viewer > header {
+    flex-shrink: 0;
+    padding-top: max(10px, env(safe-area-inset-top)) !important;
+  }
+  .viewer .viewer-content {
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .viewer-document-preview iframe {
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+  }
+  .ios-tabbar > button { min-height: 48px; }
+}
+@media (max-width: 380px) {
+  .ios-tabbar > .ios-tabbar-upload { flex-basis: 44px !important; }
+  .ios-tabbar > button { font-size: 8px !important; }
+  .ios-tabbar > button svg { width: 17px !important; height: 17px !important; }
+  .viewer > header { gap: 6px !important; padding-left: 8px !important; padding-right: 8px !important; }
+  .viewer .viewer-actions { gap: 2px !important; }
+  .viewer .viewer-actions button {
+    flex-basis: 32px !important;
+    width: 32px !important;
+    min-width: 32px !important;
+    height: 32px !important;
+    min-height: 32px !important;
+  }
+}
