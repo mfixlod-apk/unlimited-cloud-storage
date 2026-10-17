@@ -1699,11 +1699,34 @@ function VirtualGalleryChunk({ items, fileLabels, channel, paused, selectionMode
 }
 
 function Thumbnail({ channel, item, paused }: { channel: CloudChannel; item: CloudItem; paused: boolean }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [inRange, setInRange] = useState(false);
   const [url, setUrl] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [retry, setRetry] = useState(0);
+
+  // Only fetch thumbnails near the visible viewport. Gallery chunks can contain
+  // many items, and starting every Telegram request at once makes scrolling feel sluggish.
   useEffect(() => {
-    if (paused) { setUrl(""); setLoaded(false); return; }
+    const element = containerRef.current;
+    if (!element) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setInRange(true);
+      return;
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      setInRange(Boolean(entry?.isIntersecting));
+    }, { rootMargin: "500px 0px" });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (paused || !inRange) {
+      setUrl("");
+      setLoaded(false);
+      return;
+    }
     let active = true;
     let objectUrl = "";
     const controller = new AbortController();
@@ -1712,10 +1735,10 @@ function Thumbnail({ channel, item, paused }: { channel: CloudChannel; item: Clo
       if (active) setLoaded(true);
     }).catch(() => { if (active) setLoaded(true); });
     return () => { active = false; controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [channel, item.id, paused, retry]);
+  }, [channel, item.id, paused, inRange, retry]);
   const Placeholder = item.kind === "video" ? VideoIcon : item.kind === "audio" ? MusicIcon : item.kind === "image" ? ImageIcon : FileIcon;
   const failed = () => { setUrl(""); if (retry < 1) { setLoaded(false); setRetry(1); } else setLoaded(true); };
-  return <div className={`thumbnail ${loaded ? "loaded" : ""}`}>{url ? <img src={url} alt="" loading="lazy" onError={failed} /> : <Placeholder />}{item.kind === "video" && <span className="play-badge">▶</span>}</div>;
+  return <div ref={containerRef} className={`thumbnail ${loaded ? "loaded" : ""}`}>{url ? <img src={url} alt="" loading="lazy" onError={failed} /> : <Placeholder />}{item.kind === "video" && <span className="play-badge">▶</span>}</div>;
 }
 
 function MediaCard({ channel, item, displayLabel, pauseThumbnail, selectionMode, selected, favorite, viewMode, onToggleFavorite, onOpen, onToggleSelection, onDownload, onDelete }: { channel: CloudChannel; item: CloudItem; displayLabel?: { title: string; tags: string[]; note?: string }; viewMode: "grid" | "list"; pauseThumbnail: boolean; selectionMode: boolean; selected: boolean; favorite: boolean; onToggleFavorite: () => void; onOpen: () => void; onToggleSelection: () => void; onDownload: () => void; onDelete: () => void }) {
