@@ -106,6 +106,41 @@ const previewLimitMb = (effectiveMemoryMb: number) => {
   if (effectiveMemoryMb <= 1024) return 768;
   return Math.min(1536, Math.floor(effectiveMemoryMb * .75));
 };
+const FULL_IMAGE_CACHE_LIMIT = 48 * 1024 * 1024;
+const FULL_IMAGE_MAX_ITEM = 16 * 1024 * 1024;
+const fullImageCache = new Map<string, Blob>();
+let fullImageCacheBytes = 0;
+
+const fullImageKey = (item: Pick<CloudItem, "channelId" | "id">) => `${item.channelId}:${item.id}`;
+
+function getCachedFullImage(item: CloudItem): Blob | undefined {
+  const key = fullImageKey(item);
+  const blob = fullImageCache.get(key);
+  if (!blob) return undefined;
+  fullImageCache.delete(key);
+  fullImageCache.set(key, blob);
+  return blob;
+}
+
+function rememberFullImage(item: CloudItem, blob: Blob) {
+  if (item.kind !== "image" || !blob.size || blob.size > FULL_IMAGE_MAX_ITEM) return;
+  const key = fullImageKey(item);
+  const existing = fullImageCache.get(key);
+  if (existing) {
+    fullImageCacheBytes -= existing.size;
+    fullImageCache.delete(key);
+  }
+  while (fullImageCache.size >= 5 || fullImageCacheBytes + blob.size > FULL_IMAGE_CACHE_LIMIT) {
+    const oldestKey = fullImageCache.keys().next().value as string | undefined;
+    if (!oldestKey) return;
+    const oldest = fullImageCache.get(oldestKey);
+    if (oldest) fullImageCacheBytes -= oldest.size;
+    fullImageCache.delete(oldestKey);
+  }
+  fullImageCache.set(key, blob);
+  fullImageCacheBytes += blob.size;
+}
+
 
 
 const selectedRelativePaths = new WeakMap<File, string>();
@@ -1835,10 +1870,23 @@ function Viewer({ channel, item, previewLimitBytes, favorite, onToggleFavorite, 
     if (item.kind !== "image" && item.kind !== "video" && item.kind !== "audio") return;
     if (progressiveCandidate && !progressiveFailed) return;
     if (item.size > previewLimitBytes) return;
-    const controller = new AbortController();
     let objectUrl = "";
+    const cachedImage = item.kind === "image" ? getCachedFullImage(item) : undefined;
+    if (cachedImage) {
+      imageBlob.current = cachedImage;
+      objectUrl = URL.createObjectURL(cachedImage);
+      setProgress(1);
+      setUrl(objectUrl);
+      return () => { imageBlob.current = undefined; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+    }
+    const controller = new AbortController();
     telegramDrive.download(channel, item, setProgress, controller.signal).then((blob) => {
-      if (blob && !controller.signal.aborted) { imageBlob.current = item.kind === "image" ? blob : undefined; objectUrl = URL.createObjectURL(blob); setUrl(objectUrl); }
+      if (blob && !controller.signal.aborted) {
+        imageBlob.current = item.kind === "image" ? blob : undefined;
+        if (item.kind === "image") rememberFullImage(item, blob);
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      }
     }).catch((cause) => { if (!controller.signal.aborted) setError(friendlyError(cause)); });
     return () => { controller.abort(); imageBlob.current = undefined; if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [channel, item, previewLimitBytes, progressiveCandidate, progressiveFailed]);
