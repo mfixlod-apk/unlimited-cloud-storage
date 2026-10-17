@@ -414,3 +414,128 @@ button, input, select, textarea { transition: background-color .18s ease, border
     line-height: 1.35;
   }
 }
+
+
+/* CloudVault-inspired black + cyan interface for Miki Backup.
+   Uses existing components and CSS only: no paid services or dependencies. */
+:root {
+  --accent: #65d7ff;
+  --accent-dark: #25b9ed;
+  --accent-soft: #102a35;
+  --ink: #f7f8fc;
+  --muted: #9699a3;
+  --line: #303035;
+  --surface: #1c1c1e;
+  --soft: #262629;
+  --page: #000000;
+  --sidebar: #09090b;
+  --thumbnail: #1b1b1e;
+  --thumbnail-line: #303035;
+  --line-strong: #414148;
+  --mobile-nav: rgba(29, 29, 31, .91);
+  --floating: rgba(25, 25, 27, .96);
+  --success: #61d890;
+  --avatar-bg: #123544;
+  --avatar-ink: #65d7ff;
+}
+:root[data-theme="light"] {
+  --accent: #159fc9;
+  --accent-dark: #087fa7;
+  --accent-soft: #e5f8ff;
+  --ink: #191b20;
+  --muted: #747985;
+  --line: #e1e4e9;
+  --surface: #ffffff;
+  --soft: #f3f5f8;
+  --page: #f5f7fa;
+  --sidebar: #eef1f5;
+  --thumbnail: #f0f3f7;
+  --thumbnail-line: #e1e4e9;
+  --line-strong: #cbd1da;
+  --mobile-nav: rgba(255, 255, 255, .9);
+  --floating: rgba(255, 255, 255, .96);
+  --success: #138a56;
+  --avatar-bg: #e0f7ff;
+  --avatar-ink: #087fa7;
+}
+html, body, #root { background: var(--page); color: var(--ink); }
+body { color: var(--ink); }
+.app-shell, .drive-host, .drive-main, .drive-content, .gallery, .month-groups { background: var(--page); color: var(--ink); }
+.sidebar { background: var(--sidebar); border-right-color: var(--line); }
+.brand-mark { background: var(--accent); color: #001017; border-radius: 13px; box-shadow: none; }
+.drive-main { background: var(--page); }
+.drive-header h1, .mobile-title-row h1 { color: var(--ink); letter-spacing: -.045em; }
+.eyebrow, .library-stats-eyebrow { color: var(--accent); }
+.primary-button, .mobile-upload, .ios-tabbar-upload {
+  background: var(--accent) !important;
+  color: #001018 !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+.primary-button:hover:not(:disabled), .mobile-upload:hover:not(:disabled) { background: var(--accent-dark) !important; transform: translateY(-1px); }
+.secondary-button, .month-toggle, .sort-toggle, .search-box, .mobile-search {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--line);
+}
+.library-stats, .folder-toolbar, .folder-tile, .library-stat-card, .settings-panel, .upload-panel, .modal-card, .viewer {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--line);
+  box-shadow: none;
+}
+.library-stats { border-radius: 26px; }
+.library-stat-card, .folder-tile { border-radius: 22px; }
+.folder-tile:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: none; }
+.library-stat-icon { background: #102d38; color: var(--accent); }
+.photo-stat { color: #65d7ff; }
+.video-stat { color: #d64ce8; }
+.document-stat { color: #ff5757; }
+.month-group > h2 { color: var(--ink); border-bottom-color: var(--line); }
+.media-card { color: var(--ink); }
+.media-open { color: var(--ink); }
+.thumbnail, .document-card .thumbnail {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+}
+.document-card .thumbnail > svg { color: #f05252; opacity: 1; }
+.file-extension-badge, .file-type-label {
+  background: #401c20;
+  color: #ff7777;
+  border-color: transparent;
+  border-radius: 10px;
+  box-shadow: none;
+}
+.media-info, .media-info strong, .media-info small { color: var(--ink); }
+.media-info small { color: var(--muted); }
+.mobile-drive-nav {
+  background: var(--page);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+.ios-tabbar {
+  background: var(--mobile-nav);
+  border: 1px solid #38383d;
+  border-radius: 40px;
+  box-shadow: 0 8px 26px rgba(0,0,0,.25);
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+}
+.ios-tabbar button { color: var(--ink); }
+.ios-tabbar button.active:not(.ios-tabbar-upload) { color: var(--accent); }
+.ios-tabbar-upload { border-radius: 50% !important; }
+.mobile-tabs button.active::after { background: var(--accent); }
+.viewer-backdrop { background: rgba(0,0,0,.78); backdrop-filter: blur(16px); }
+.action-menu, .modal-backdrop > section { background: var(--surface); color: var(--ink); border-color: var(--line); }
+input, select, textarea { background: var(--soft); color: var(--ink); border-color: var(--line); }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 640px) {
+  .drive-main { padding-top: max(14px, env(safe-area-inset-top)); }
+  .mobile-drive-nav { background: var(--page); }
+  .library-stats, .folder-toolbar { margin-left: 16px; margin-right: 16px; }
+  .month-groups { padding-left: 16px; padding-right: 16px; }
+  .ios-tabbar { left: 12px; right: 12px; bottom: max(10px, env(safe-area-inset-bottom)); }
+  .media-card.document-card .media-info { display: flex !important; }
+}
