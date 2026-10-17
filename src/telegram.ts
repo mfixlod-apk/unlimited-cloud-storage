@@ -670,9 +670,17 @@ export class TelegramDrive {
   private toCloudItem(message: any, channelId: string): CloudItem | undefined {
     if (!message?.media || (!message.photo && !message.document)) return undefined;
     const file = message.file;
-    const mime = file?.mimeType || (message.photo ? "image/jpeg" : "application/octet-stream");
+    const mime = file?.mimeType || message.document?.mimeType || (message.photo ? "image/jpeg" : "application/octet-stream");
     const fallbackExtension = message.photo ? ".jpg" : "";
-    const name = safeFileName(file?.name, `file-${message.id}${fallbackExtension}`);
+    // Teleproto's file.name can be empty for older Telegram documents even
+    // when Telegram includes the original filename in DocumentAttributeFilename.
+    const attributes = message.document?.attributes || message.media?.document?.attributes || [];
+    const attributeName = Array.from(attributes as any[]).find((attribute: any) =>
+      attribute instanceof Api.DocumentAttributeFilename || attribute?.className === "DocumentAttributeFilename" || attribute?.constructor?.name === "DocumentAttributeFilename"
+    ) as any;
+    const telegramAttributeName = attributeName?.fileName || attributeName?.file_name;
+    const fallbackMimeExtension = mime === "application/pdf" ? ".pdf" : mime === "application/zip" ? ".zip" : "";
+    const name = safeFileName(file?.name || telegramAttributeName, `file-${message.id}${fallbackExtension || fallbackMimeExtension}`);
     const extension = fileExtension(name);
     const kind: ItemKind = message.photo || mime.startsWith("image/") || IMAGE_EXTENSIONS.has(extension)
       ? "image"
