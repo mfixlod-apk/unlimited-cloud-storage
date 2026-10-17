@@ -804,3 +804,15 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   }
   .viewer-document-preview iframe { min-height: 60vh; }
 }
+
+
+/* Six-item iPhone navigation: keep Documents directly accessible without
+   shrinking the central upload action into a tiny tap target. */
+@media (max-width: 640px) {
+  .ios-tabbar { gap: 0 !important; padding-left: 4px; padding-right: 4px; }
+  .ios-tabbar > button { min-width: 0; flex: 1 1 0; gap: 3px; font-size: 9px; }
+  .ios-tabbar > button svg { width: 19px; height: 19px; }
+  .ios-tabbar > .ios-tabbar-upload { flex: 0 0 52px; }
+  .ios-tabbar > .ios-tabbar-upload svg { width: 23px !important; height: 23px !important; }
+  .ios-tabbar > button span { white-space: nowrap; }
+}
