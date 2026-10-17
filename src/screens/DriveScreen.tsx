@@ -220,7 +220,7 @@ const datePrefixedName = async (file: File) => {
 };
 
 const fileTypeLabel = (item: Pick<CloudItem, "name" | "mime" | "kind">) => {
-  const extension = item.name.toLocaleLowerCase().match(/\\.([^.]+)$/)?.[1];
+  const extension = item.name.toLocaleLowerCase().match(/\.([^.]+)$/)?.[1];
   if (extension) return extension.toUpperCase();
   if (item.mime && item.mime !== "application/octet-stream") {
     const subtype = item.mime.split("/")[1]?.split(/[;+]/)[0];
