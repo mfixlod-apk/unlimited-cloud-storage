@@ -168,3 +168,36 @@ img, video {
   }
 }
 
+
+
+/* Make document names unmistakable on the iPhone library cards. */
+.document-card .media-info {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  padding: 10px 28px 8px 2px;
+}
+.document-card .media-info > strong {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.document-card .media-info .file-type-label {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--soft);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .04em;
+}
