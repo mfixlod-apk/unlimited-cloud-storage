@@ -508,19 +508,6 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     if ((search.trim() || favoritesOnly || activeAlbumId) && hasMore && !loading && !loadingMore && !selected) void load(false);
   }, [hasMore, load, loading, loadingMore, search, selected, favoritesOnly, activeAlbumId]);
 
-  const displayedItems = useMemo(() => {
-    const result = [...visibleItems];
-    switch (fileSort) {
-      case "oldest": return result.sort((a, b) => a.date.getTime() - b.date.getTime());
-      case "name-asc": return result.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
-      case "name-desc": return result.sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: "base" }));
-      case "size-asc": return result.sort((a, b) => a.size - b.size);
-      case "size-desc": return result.sort((a, b) => b.size - a.size);
-      case "type": return result.sort((a, b) => fileTypeLabel(a).localeCompare(fileTypeLabel(b)) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
-      default: return result.sort((a, b) => b.date.getTime() - a.date.getTime());
-    }
-  }, [visibleItems, fileSort]);
-
   const folderIsVaultProtected = (folder: SavedAlbum) => {
     let current: SavedAlbum | undefined = folder;
     const seen = new Set<string>();
@@ -551,6 +538,19 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     const vaultItemIds = new Set(galleryMetadata.albums.filter((entry) => folderIsVaultProtected(entry)).flatMap((entry) => entry.itemIds));
     return items.filter((item) => { const label = galleryMetadata.fileLabels?.[item.id]; const searchable = [item.name, fileTypeLabel(item), label?.title, label?.note, ...(label?.tags || [])].filter(Boolean).join(" ").toLocaleLowerCase(); return (activeAlbumId ? Boolean(albumSet?.has(item.id)) : !vaultItemIds.has(item.id)) && (filter === "all" || item.kind === filter) && (!query || searchable.includes(query)) && (!favoritesOnly || favoriteSet.has(item.id)); });
   }, [items, filter, search, galleryMetadata, favoritesOnly, activeAlbumId]);
+
+  const displayedItems = useMemo(() => {
+    const result = [...visibleItems];
+    switch (fileSort) {
+      case "oldest": return result.sort((a, b) => a.date.getTime() - b.date.getTime());
+      case "name-asc": return result.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+      case "name-desc": return result.sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: "base" }));
+      case "size-asc": return result.sort((a, b) => a.size - b.size);
+      case "size-desc": return result.sort((a, b) => b.size - a.size);
+      case "type": return result.sort((a, b) => fileTypeLabel(a).localeCompare(fileTypeLabel(b)) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+      default: return result.sort((a, b) => b.date.getTime() - a.date.getTime());
+    }
+  }, [visibleItems, fileSort]);
 
   useEffect(() => {
     const onGlobalShortcut = (event: KeyboardEvent) => {
