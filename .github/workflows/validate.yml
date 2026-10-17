@@ -26,3 +26,5 @@ jobs:
         run: npm run typecheck
       - name: Build production bundle
         run: npm run build
+      - name: Verify Telegram upload chunk handling
+        run: npm run test:upload
