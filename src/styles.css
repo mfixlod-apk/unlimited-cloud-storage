@@ -936,3 +936,109 @@ input:focus { border-color: #aaa9a0; box-shadow: 0 0 0 3px rgba(237, 101, 74, .1
 .media-tags { display:flex; flex-wrap:wrap; gap:4px; min-width:0; margin-top:2px; }
 .media-tags small { max-width:100%; overflow:hidden; padding:3px 6px; border-radius:999px; background:var(--soft); color:var(--muted); font-size:10px; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
 .media-card.list-view .media-tags small { font-size:10px; }
+
+
+/* iPhone-first native app treatment */
+.ios-tabbar { display: none; }
+
+@media (max-width: 640px) {
+  html, body, #root { min-height: 100%; background: var(--page); }
+  body { -webkit-tap-highlight-color: transparent; }
+  button, .media-open, .mobile-tabs button { touch-action: manipulation; }
+  .app-shell { min-height: 100dvh; display: block; }
+  .drive-main {
+    min-height: 100dvh;
+    padding: 0 0 calc(92px + env(safe-area-inset-bottom));
+    overflow: clip;
+  }
+  .mobile-drive-nav {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    gap: 13px;
+    margin: 0 0 13px;
+    padding: max(10px, env(safe-area-inset-top)) 16px 13px;
+    border: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+    border-radius: 0 0 20px 20px;
+    background: var(--mobile-nav);
+    box-shadow: 0 5px 22px rgba(20, 20, 18, .045);
+    -webkit-backdrop-filter: saturate(180%) blur(22px);
+    backdrop-filter: saturate(180%) blur(22px);
+  }
+  .mobile-app-bar { min-height: 38px; }
+  .mobile-wordmark { color: var(--ink); font-size: 13px; letter-spacing: -.025em; }
+  .mobile-wordmark svg { width: 21px; height: 21px; color: var(--accent); }
+  .mobile-settings {
+    width: 38px; height: 38px; border: 0; border-radius: 50%;
+    background: var(--soft); color: var(--ink);
+  }
+  .mobile-upload { width: 39px; height: 39px; min-height: 39px; border-radius: 50%; padding: 0; }
+  .mobile-upload span { display: none; }
+  .mobile-title-row { align-items: end; }
+  .mobile-title-row h1 { margin-bottom: 4px; font-size: 32px; font-weight: 750; letter-spacing: -.055em; }
+  .mobile-title-row p { font-size: 12px; }
+  .mobile-channel-control { width: auto; max-width: 46%; }
+  .mobile-channel-control .channel-select { border: 0; border-radius: 13px; background: var(--soft); box-shadow: none; }
+  .mobile-channel-control .channel-select summary { min-height: 40px; padding: 6px 10px; }
+  .mobile-channel-control .channel-select summary > strong { font-size: 11px; }
+  .mobile-search { min-height: 42px; border: 0; border-radius: 13px; background: var(--soft); box-shadow: none; }
+  .mobile-search input { min-height: 42px; background: transparent; }
+  .mobile-tools { display: flex; gap: 7px; margin: 0 -16px; padding: 0 16px 2px; overflow-x: auto; scrollbar-width: none; }
+  .mobile-tools::-webkit-scrollbar { display: none; }
+  .mobile-tools button { flex: 0 0 auto; min-height: 34px; padding: 0 12px; border: 0; border-radius: 999px; background: var(--soft); color: var(--muted); font-size: 11px; }
+  .mobile-tools button.active { color: var(--selection-ink); background: var(--selection-bg); box-shadow: none; }
+  .mobile-tabs { gap: 22px; margin: 0 0 13px; padding: 0 16px 3px; border-bottom: 1px solid var(--line); }
+  .mobile-tabs button { position: relative; min-height: 38px; padding: 0 1px; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-size: 13px; font-weight: 650; }
+  .mobile-tabs button.active { color: var(--accent); background: transparent; box-shadow: none; }
+  .mobile-tabs button.active::after { content: ""; position: absolute; right: 0; bottom: -4px; left: 0; height: 3px; border-radius: 3px 3px 0 0; background: var(--accent); }
+  .folder-toolbar { margin: 0 12px 14px; padding: 13px; border: 0; border-radius: 17px; background: var(--soft); }
+  .folder-toolbar-title strong { font-size: 14px; }
+  .folder-tile { min-height: 94px; padding: 13px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); }
+  .gallery { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; margin: 0; }
+  .gallery-chunks { gap: 2px; }
+  .month-group { margin: 0 0 20px; }
+  .month-group > h2 { display: flex; align-items: baseline; justify-content: space-between; margin: 0 13px 9px; font-size: 18px; font-weight: 750; letter-spacing: -.04em; }
+  .month-group > h2 small { color: var(--muted); font-size: 11px; font-weight: 500; }
+  .media-card { min-width: 0; overflow: hidden; border-radius: 3px; background: transparent; }
+  .media-card .media-open { width: 100%; }
+  .thumbnail { aspect-ratio: 1 / 1; border: 0; border-radius: 3px; background: var(--thumbnail); }
+  .media-info { display: none !important; }
+  .media-card .card-menu { top: 4px; right: 4px; }
+  .media-card:focus-within .card-menu { opacity: 1; }
+  .scroll-sentinel { padding: 18px 10px 12px; }
+  .ios-tabbar {
+    position: fixed;
+    right: 0; bottom: 0; left: 0; z-index: 50;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    align-items: center;
+    min-height: calc(64px + env(safe-area-inset-bottom));
+    padding: 7px 9px calc(7px + env(safe-area-inset-bottom));
+    border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+    background: var(--mobile-nav);
+    -webkit-backdrop-filter: saturate(180%) blur(24px);
+    backdrop-filter: saturate(180%) blur(24px);
+  }
+  .ios-tabbar > button {
+    min-width: 0; min-height: 47px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    padding: 3px 0; color: var(--muted); background: transparent; font-size: 10px; font-weight: 600;
+  }
+  .ios-tabbar > button svg { width: 21px; height: 21px; stroke-width: 1.9; }
+  .ios-tabbar > button.active { color: var(--accent); }
+  .ios-tabbar > button.active svg { stroke-width: 2.3; }
+  .ios-tabbar > .ios-tabbar-upload { gap: 2px; color: white; }
+  .ios-tabbar-upload svg { width: 28px !important; height: 28px !important; padding: 5px; border-radius: 10px; background: var(--accent); box-sizing: content-box; }
+  .ios-tabbar-upload span { color: var(--muted); font-size: 10px; }
+  .upload-panel, .download-panel { bottom: calc(76px + env(safe-area-inset-bottom)); }
+  .bulk-action-bar { bottom: calc(76px + env(safe-area-inset-bottom)); }
+  .viewer { z-index: 80; }
+}
+
+@media (max-width: 380px) {
+  .mobile-title-row h1 { font-size: 29px; }
+  .mobile-tools { gap: 6px; }
+  .mobile-tools button { padding: 0 10px; }
+  .mobile-tabs { gap: 17px; }
+}
