@@ -1593,6 +1593,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
         <nav className="ios-tabbar" aria-label="Main navigation">
           <button className={filter === "all" ? "active" : ""} onClick={() => { setFilter("all"); setFavoritesOnly(false); setActiveAlbumId(undefined); }} aria-current={filter === "all" ? "page" : undefined}><GridIcon /><span>Library</span></button>
           <button className={filter === "image" ? "active" : ""} onClick={() => { setFilter("image"); setFavoritesOnly(false); setActiveAlbumId(undefined); }} aria-current={filter === "image" ? "page" : undefined}><ImageIcon /><span>Photos</span></button>
+          <button className={filter === "file" ? "active" : ""} onClick={() => { setFilter("file"); setFavoritesOnly(false); setActiveAlbumId(undefined); }} aria-current={filter === "file" ? "page" : undefined}><FileIcon /><span>Documents</span></button>
           <button className="ios-tabbar-upload" onClick={openSync} aria-label="Add photos and videos"><PlusIcon /><span>Add</span></button>
           <button className={filter === "video" ? "active" : ""} onClick={() => { setFilter("video"); setFavoritesOnly(false); setActiveAlbumId(undefined); }} aria-current={filter === "video" ? "page" : undefined}><VideoIcon /><span>Videos</span></button>
           <button onClick={() => setSettings(true)}><SettingsIcon /><span>Settings</span></button>
@@ -2019,7 +2020,10 @@ function Viewer({ channel, item, previewLimitBytes, favorite, onToggleFavorite, 
       if (blob && !controller.signal.aborted) {
         imageBlob.current = item.kind === "image" ? blob : undefined;
         if (item.kind === "image") rememberFullImage(item, blob);
-        objectUrl = URL.createObjectURL(blob);
+        const previewBlob = pdfDocument && blob.type !== "application/pdf"
+          ? new Blob([blob], { type: "application/pdf" })
+          : blob;
+        objectUrl = URL.createObjectURL(previewBlob);
         setUrl(objectUrl);
       }
     }).catch((cause) => { if (!controller.signal.aborted) setError(friendlyError(cause)); });
