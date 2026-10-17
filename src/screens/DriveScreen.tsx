@@ -1462,6 +1462,20 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
   const previousItem = selectedIndex > 0 ? visibleItems[selectedIndex - 1] : undefined;
   const nextItem = selectedIndex >= 0 && selectedIndex < visibleItems.length - 1 ? visibleItems[selectedIndex + 1] : undefined;
   const queueHasWork = uploadSnapshot.pending > 0;
+
+  const libraryStats = useMemo(() => {
+    const photos = items.filter((item) => item.kind === "image");
+    const videos = items.filter((item) => item.kind === "video");
+    const documents = items.filter((item) => item.kind === "file" || item.kind === "audio");
+    return {
+      photos: photos.length,
+      videos: videos.length,
+      documents: documents.length,
+      bytes: items.reduce((total, item) => total + Math.max(0, item.size || 0), 0),
+      uploadedThisDevice: Array.from(uploadRecords.current.values()).filter((record) => record.channelId === channel.id && record.status === "done").length,
+      uploadedBytesThisDevice: Array.from(uploadRecords.current.values()).filter((record) => record.channelId === channel.id && record.status === "done").reduce((total, record) => total + Math.max(0, record.size || 0), 0),
+    };
+  }, [items, channel.id, uploadSnapshot.done, uploadSnapshot.total]);
   const directoryPickerSupported = typeof (window as SaveFilePickerWindow).showDirectoryPicker === "function" || "webkitdirectory" in document.createElement("input");
 
   return (
@@ -1485,6 +1499,22 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
           <div className="header-actions"><button className="secondary-button" onClick={() => setViewMode((value) => value === "grid" ? "list" : "grid")} aria-label={viewMode === "grid" ? "Switch to list view" : "Switch to grid view"}>{viewMode === "grid" ? "☷ List view" : "▦ Grid view"}</button><button className={`secondary-button month-toggle ${groupByMonth ? "active" : ""}`} onClick={() => setGroupByMonth((value) => !value)} aria-pressed={groupByMonth} aria-label="Group files by month" title="Group files by month"><CalendarIcon /><span>{groupByMonth ? "Grouped" : "Group by month"}</span></button><button className="secondary-button sort-toggle" aria-label={`Order: ${sortOrder === "newest" ? "newest first" : "oldest first"}`} title={sortOrder === "newest" ? "Newest first" : "Oldest first"} onClick={() => { setSortOrder((value) => value === "newest" ? "oldest" : "newest"); window.scrollTo({ top: 0, behavior: "smooth" }); }}><RefreshIcon /><span>{sortOrder === "newest" ? "Newest first" : "Oldest first"}</span></button><button className={`secondary-button ${favoritesOnly ? "active" : ""}`} onClick={() => { setFavoritesOnly((value) => !value); setActiveAlbumId(undefined); }} aria-pressed={favoritesOnly}>★ Favorites</button><button className="secondary-button" onClick={() => { setFilter("video"); setFavoritesOnly(false); setActiveAlbumId(undefined); const first = items.find((item) => item.kind === "video"); if (first) setSelected(first); else setError("No videos are available in the loaded gallery yet."); }}>▶ Reels</button><button className="secondary-button" onClick={() => setShowInsights(true)}>Insights</button><button className={`secondary-button select-toggle ${selectionMode ? "active" : ""}`} onClick={toggleSelectionMode} aria-pressed={selectionMode}><CheckIcon /><span>{selectionMode ? "Cancel" : "Select"}</span></button><label className="search-box"><SearchIcon /><input ref={searchInputRef} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search files (press /)" aria-label="Search files" />{search && <button onClick={() => setSearch("")} aria-label="Clear search"><CloseIcon /></button>}</label><button className="primary-button" onClick={openSync} aria-label={queueHasWork ? "Add more files to the upload queue" : "Sync files now"}><UploadIcon />{queueHasWork ? "Add files" : "Sync now"}</button></div>
         </header>
         <div className="mobile-tabs">{tabs.map(({ value, label }) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div>
+        <section className="library-stats" aria-label="Library storage statistics">
+          <div className="library-stats-heading">
+            <div><span className="library-stats-eyebrow">YOUR MEMORY, IN ONE PLACE</span><h2>Library overview</h2></div>
+            <span className={online ? "library-connection is-online" : "library-connection"}><i />{online ? "Connected" : "Offline"}</span>
+          </div>
+          <div className="library-stats-grid">
+            <div className="library-stat-card"><span className="library-stat-icon photo-stat"><ImageIcon /></span><span className="library-stat-label">Photos</span><strong>{libraryStats.photos.toLocaleString()}</strong><small>{hasMore ? "in loaded items" : "in your library"}</small></div>
+            <div className="library-stat-card"><span className="library-stat-icon video-stat"><VideoIcon /></span><span className="library-stat-label">Videos</span><strong>{libraryStats.videos.toLocaleString()}</strong><small>{hasMore ? "in loaded items" : "in your library"}</small></div>
+            <div className="library-stat-card storage-stat"><span className="library-stat-icon storage-stat-icon"><CloudIcon /></span><span className="library-stat-label">Storage represented</span><strong>{formatSize(libraryStats.bytes)}</strong><small>{items.length.toLocaleString()} files loaded{hasMore ? " · more to scan" : " · scan complete"}</small></div>
+          </div>
+          <div className="library-stats-footer">
+            <div><span className="library-upload-pulse"><UploadIcon /></span><span><strong>{libraryStats.uploadedThisDevice.toLocaleString()} uploads completed on this device</strong><small>{formatSize(libraryStats.uploadedBytesThisDevice)} across the saved upload history</small></span></div>
+            <button onClick={() => setShowUploadPanel(true)}>{queueHasWork ? "View upload progress" : "Upload status"} <ChevronIcon /></button>
+          </div>
+          {hasMore && <p className="library-stats-note">Storage is calculated from files loaded from Telegram so far. Scroll through the library to load older items and update these figures.</p>}
+        </section>
         <section className="folder-toolbar" aria-label="Folders">
           <div className="folder-toolbar-title"><strong>{activeAlbumId ? (galleryMetadata.albums.find((entry) => entry.id === activeAlbumId)?.title || "Folder") : "My folders"}</strong>{activeAlbumId && <button className="secondary-button" onClick={() => { const current = galleryMetadata.albums.find((entry) => entry.id === activeAlbumId); setActiveAlbumId(current?.parentId); setVaultUnlocked(false); }}>← Back</button>}</div>
           <div className="folder-toolbar-actions">{selectionMode && <button className="secondary-button" onClick={() => void labelSelectedFiles()}>✎ Add search tags</button>}<button className="secondary-button" onClick={() => void createFolder(false)}>＋ New folder</button><button className="secondary-button" onClick={() => void createFolder(true)}>🔒 New vault</button>{selectionMode && <button className="secondary-button" onClick={() => void addSelectedToFolder()}>Move selected</button>}</div>
