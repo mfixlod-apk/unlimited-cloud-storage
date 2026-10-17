@@ -1539,9 +1539,9 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
             <span className={online ? "library-connection is-online" : "library-connection"}><i />{online ? "Connected" : "Offline"}</span>
           </div>
           <div className="library-stats-grid">
-            <div className="library-stat-card"><span className="library-stat-icon photo-stat"><ImageIcon /></span><span className="library-stat-label">Photos</span><strong>{libraryStats.photos.toLocaleString()}</strong><small>{hasMore ? "in loaded items" : "in your library"}</small></div>
+            <div className="library-stat-card"><span className="library-stat-icon photo-stat"><ImageIcon /></span><span className="library-stat-label">Photos</span><strong>{libraryStats.photos.toLocaleString()}</strong><small>{libraryScan.complete ? "in your library" : "in loaded items"}</small></div>
             <div className="library-stat-card"><span className="library-stat-icon video-stat"><VideoIcon /></span><span className="library-stat-label">Videos</span><strong>{libraryStats.videos.toLocaleString()}</strong><small>{hasMore ? "in loaded items" : "in your library"}</small></div>
-            <div className="library-stat-card storage-stat"><span className="library-stat-icon storage-stat-icon"><CloudIcon /></span><span className="library-stat-label">Storage represented</span><strong>{formatSize(libraryStats.bytes)}</strong><small>{items.length.toLocaleString()} files loaded{hasMore ? " · more to scan" : " · scan complete"}</small></div>
+            <div className="library-stat-card storage-stat"><span className="library-stat-icon storage-stat-icon"><CloudIcon /></span><span className="library-stat-label">Storage represented</span><strong>{formatSize(libraryStats.bytes)}</strong><small>{libraryStats.scanned.toLocaleString()} files counted{libraryScan.complete ? " · scan complete" : " · partial scan"}</small></div>
           </div>
           <div className="library-stats-footer">
             <div><span className="library-upload-pulse"><UploadIcon /></span><span><strong>{libraryStats.uploadedThisDevice.toLocaleString()} uploads completed on this device</strong><small>{formatSize(libraryStats.uploadedBytesThisDevice)} across the saved upload history</small></span></div>
