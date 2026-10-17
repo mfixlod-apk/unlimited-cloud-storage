@@ -1,4 +1,4 @@
-const CACHE_NAME = "miki-unlimited-backup-shell-v46";
+const CACHE_NAME = "miki-unlimited-backup-shell-v47";
 const DEVELOPMENT = new URL(self.location.href).searchParams.has("dev");
 const STREAM_PATH = "/__telegram_stream__/";
 const STREAM_CHUNK_SIZE = 1024 * 1024;
@@ -29,7 +29,7 @@ self.addEventListener("activate", (event) => {
     caches.keys()
       .then((keys) => Promise.all(
         keys
-          .filter((key) => key.startsWith("unlimited-cloud-storage-") && key !== CACHE_NAME)
+          .filter((key) => (key.startsWith("unlimited-cloud-storage-") || key.startsWith("miki-unlimited-backup-shell-")) && key !== CACHE_NAME)
           .map((key) => caches.delete(key)),
       ))
       .then(() => self.clients.claim()),
