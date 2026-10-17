@@ -1,0 +1,117 @@
+/* CloudVault-inspired visual pass: calm iOS surfaces, clear storage status and photo-first browsing. */
+:root {
+  --accent: #5b61e8;
+  --accent-dark: #474dce;
+  --accent-soft: #eef0ff;
+  --avatar-bg: #e5e7ff;
+  --avatar-ink: #454bc7;
+  --selection-bg: #5b61e8;
+}
+:root[data-theme="dark"] {
+  --accent: #9ba0ff;
+  --accent-dark: #858bff;
+  --accent-soft: #303253;
+  --avatar-bg: #303253;
+  --avatar-ink: #c4c7ff;
+  --selection-bg: #666ce8;
+}
+.primary-button {
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.primary-button:active { transform: translateY(1px) scale(.985); }
+.sidebar nav button.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.sidebar nav button.active > svg { color: var(--accent); }
+.library-stats {
+  border-color: color-mix(in srgb, var(--accent) 14%, var(--line));
+  background: linear-gradient(145deg, var(--surface), color-mix(in srgb, var(--accent-soft) 32%, var(--surface)));
+  box-shadow: 0 10px 30px rgba(35, 38, 90, .055);
+}
+.library-stats-eyebrow { color: var(--accent); }
+.library-connection.is-online {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 25%, var(--line));
+  background: color-mix(in srgb, var(--success) 7%, var(--surface));
+}
+.library-stat-card {
+  border-color: color-mix(in srgb, var(--line) 80%, transparent);
+  border-radius: 17px;
+  background: color-mix(in srgb, var(--surface) 90%, var(--accent-soft));
+}
+.library-stat-card strong { letter-spacing: -.045em; }
+.library-stat-icon.photo-stat { color: #7b75e8; background: #f0efff; }
+.library-stat-icon.video-stat { color: #d66a9d; background: #fff0f7; }
+.library-stat-icon.storage-stat-icon { color: #4f88d8; background: #edf5ff; }
+.folder-toolbar {
+  border-color: color-mix(in srgb, var(--line) 80%, transparent);
+  border-radius: 19px;
+  box-shadow: 0 5px 18px rgba(35, 38, 90, .025);
+}
+.folder-tile { transition: border-color .16s ease, transform .16s ease, box-shadow .16s ease; }
+.folder-tile:active { transform: scale(.985); }
+.file-sort-control { border-radius: 999px; }
+.file-sort-control select { cursor: pointer; }
+.media-open:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, white);
+  outline-offset: 2px;
+}
+.ios-tabbar-upload {
+  background: linear-gradient(145deg, var(--accent), var(--accent-dark)) !important;
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+@media (max-width: 640px) {
+  .mobile-drive-nav {
+    border-bottom-color: color-mix(in srgb, var(--line) 62%, transparent);
+    box-shadow: 0 4px 18px rgba(30, 34, 90, .035);
+  }
+  .mobile-wordmark svg { color: var(--accent); }
+  .mobile-upload { box-shadow: 0 4px 13px color-mix(in srgb, var(--accent) 25%, transparent); }
+  .mobile-title-row h1 { letter-spacing: -.06em; }
+  .mobile-search:focus-within {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 17%, transparent);
+  }
+  .mobile-tabs button.active { color: var(--accent); }
+  .mobile-tabs button.active::after { background: var(--accent); }
+  .library-stats {
+    margin: 0 12px 13px;
+    padding: 15px;
+    border-radius: 20px;
+    box-shadow: 0 7px 22px rgba(35, 38, 90, .04);
+  }
+  .library-stats-heading { margin-bottom: 12px; }
+  .library-stats-heading h2 { font-size: 18px; }
+  .library-stat-card {
+    min-height: 104px;
+    padding: 11px;
+    border-radius: 15px;
+  }
+  .library-stat-card strong { font-size: 20px; }
+  .library-stats-footer {
+    gap: 8px;
+    margin-top: 11px;
+    padding-top: 11px;
+  }
+  .library-stats-footer > div { min-width: 0; }
+  .library-stats-footer > div > span:last-child strong {
+    display: block;
+    font-size: 10px;
+    line-height: 1.35;
+  }
+  .library-stats-footer > div > span:last-child small { font-size: 9px; }
+  .library-stats-actions { gap: 7px; }
+  .library-scan-button { border-radius: 999px; }
+  .folder-toolbar {
+    border: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+    background: color-mix(in srgb, var(--surface) 78%, var(--soft));
+    box-shadow: 0 4px 14px rgba(35, 38, 90, .025);
+  }
+  .folder-tile { border-radius: 13px; }
+  .ios-tabbar {
+    border-top-color: color-mix(in srgb, var(--line) 65%, transparent);
+    box-shadow: 0 -5px 22px rgba(25, 28, 70, .035);
+  }
+  .ios-tabbar button.active { color: var(--accent); }
+  .ios-tabbar-upload { color: white !important; }
+}
