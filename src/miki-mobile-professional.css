@@ -1,0 +1,137 @@
+/* Miki Unlimited Backup — focused iPhone layout refinement.
+   Presentation-only overrides: preserves app behavior, local data and Telegram flows. */
+@media (max-width: 640px) {
+  .drive-main {
+    padding-bottom: calc(76px + env(safe-area-inset-bottom)) !important;
+    overflow: visible !important;
+  }
+
+  .mobile-drive-nav {
+    position: relative !important;
+    top: auto !important;
+    z-index: 2 !important;
+    display: grid !important;
+    gap: 9px !important;
+    margin: 0 0 14px !important;
+    padding: max(8px, env(safe-area-inset-top)) 16px 12px !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--line) !important;
+    border-radius: 0 0 18px 18px !important;
+    background: var(--surface) !important;
+    box-shadow: 0 4px 14px rgba(20, 28, 50, .035) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .mobile-app-bar { min-height: 34px !important; }
+  .mobile-wordmark { gap: 8px !important; font-size: 13px !important; font-weight: 750 !important; }
+  .mobile-wordmark svg { width: 26px !important; height: 26px !important; padding: 4px !important; border-radius: 8px !important; }
+  .mobile-title-row { min-height: 54px !important; align-items: center !important; gap: 10px !important; }
+  .mobile-title-row h1 { margin: 0 !important; font-size: 27px !important; line-height: 1.08 !important; letter-spacing: -.045em !important; }
+  .mobile-title-row p { margin: 4px 0 0 !important; font-size: 11px !important; }
+  .mobile-channel-control { max-width: 44% !important; }
+  .mobile-channel-control .channel-select { border: 1px solid var(--line) !important; border-radius: 12px !important; background: var(--soft) !important; }
+  .mobile-channel-control .channel-select summary { min-height: 40px !important; padding: 6px 9px !important; }
+  .mobile-channel-control .channel-select summary > strong { font-size: 10px !important; line-height: 1.2 !important; }
+
+  .mobile-search {
+    min-height: 44px !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 13px !important;
+    background: var(--soft) !important;
+  }
+  .mobile-search input { min-height: 42px !important; font-size: 14px !important; }
+  .mobile-tools { gap: 7px !important; margin: 0 -16px !important; padding: 0 16px 1px !important; }
+  .mobile-tools button, .mobile-tools .file-sort-control {
+    min-height: 32px !important;
+    padding: 0 11px !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 999px !important;
+    background: var(--surface) !important;
+    color: var(--muted) !important;
+    font-size: 10px !important;
+    font-weight: 650 !important;
+  }
+  .mobile-tools button.active {
+    border-color: color-mix(in srgb, var(--accent) 38%, var(--line)) !important;
+    background: var(--accent-soft) !important;
+    color: var(--accent) !important;
+  }
+
+  .library-stats {
+    margin: 0 12px 14px !important;
+    padding: 15px !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 18px !important;
+    background: var(--surface) !important;
+    box-shadow: 0 5px 18px rgba(25, 35, 65, .035) !important;
+  }
+  .library-stats-heading { align-items: center !important; margin-bottom: 12px !important; }
+  .library-stats-heading h2 { margin: 3px 0 0 !important; font-size: 17px !important; }
+  .library-stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 7px !important; }
+  .library-stat-card {
+    min-width: 0 !important;
+    min-height: 112px !important;
+    padding: 10px 8px !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 13px !important;
+    background: var(--soft) !important;
+  }
+  .library-stat-icon { width: 27px !important; height: 27px !important; }
+  .library-stat-label { min-height: 24px !important; font-size: 9px !important; line-height: 1.25 !important; }
+  .library-stat-card strong { font-size: 18px !important; line-height: 1.1 !important; }
+  .library-stat-card small { font-size: 9px !important; line-height: 1.3 !important; overflow-wrap: anywhere !important; }
+  .library-stats-footer { align-items: center !important; gap: 8px !important; }
+  .library-stats-footer > div > span:last-child strong { font-size: 10px !important; line-height: 1.3 !important; }
+  .library-stats-footer > div > span:last-child small { font-size: 9px !important; }
+
+  .folder-toolbar {
+    margin: 0 12px 16px !important;
+    padding: 14px !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 18px !important;
+    background: var(--surface) !important;
+    box-shadow: 0 4px 14px rgba(25, 35, 65, .025) !important;
+  }
+  .folder-toolbar-title strong { font-size: 14px !important; }
+  .folder-toolbar-actions { gap: 7px !important; }
+  .folder-toolbar-actions button { min-height: 36px !important; padding: 0 11px !important; border-radius: 10px !important; font-size: 11px !important; }
+  .folder-tile { min-height: 82px !important; padding: 11px !important; border-radius: 13px !important; }
+
+  .ios-tabbar {
+    position: fixed !important;
+    right: 0 !important; bottom: 0 !important; left: 0 !important;
+    z-index: 50 !important;
+    display: grid !important;
+    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+    align-items: center !important;
+    min-height: calc(66px + env(safe-area-inset-bottom)) !important;
+    padding: 6px 5px max(6px, env(safe-area-inset-bottom)) !important;
+    border: 0 !important;
+    border-top: 1px solid var(--line) !important;
+    border-radius: 16px 16px 0 0 !important;
+    background: var(--floating) !important;
+    box-shadow: 0 -5px 20px rgba(25, 35, 65, .07) !important;
+    -webkit-backdrop-filter: saturate(170%) blur(18px) !important;
+    backdrop-filter: saturate(170%) blur(18px) !important;
+  }
+  .ios-tabbar > button {
+    min-width: 0 !important;
+    min-height: 50px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 4px !important;
+    padding: 3px 1px !important;
+    white-space: nowrap !important;
+    font-size: 9px !important;
+    line-height: 1.1 !important;
+  }
+  .ios-tabbar > button svg { width: 20px !important; height: 20px !important; }
+  .ios-tabbar > .ios-tabbar-upload { border-radius: 12px !important; background: transparent !important; box-shadow: none !important; }
+  .ios-tabbar-upload svg { width: 21px !important; height: 21px !important; padding: 3px !important; border-radius: 8px !important; background: var(--accent) !important; color: white !important; box-sizing: content-box !important; }
+  .ios-tabbar-upload span { color: var(--muted) !important; font-size: 9px !important; }
+  .upload-panel, .download-panel { bottom: calc(76px + env(safe-area-inset-bottom)) !important; }
+  .bulk-action-bar { bottom: calc(76px + env(safe-area-inset-bottom)) !important; }
+}
