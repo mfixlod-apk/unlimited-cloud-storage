@@ -441,7 +441,7 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
     reset ? setLoading(true) : setLoadingMore(true);
     setError("");
     try {
-      const page = await telegramDrive.getHistory(requestedChannel, requestedOffset, 100, sortOrder === "oldest");
+      const page = await telegramDrive.getHistory(requestedChannel, requestedOffset, 60, sortOrder === "oldest");
       if (activeHistoryKeyRef.current !== requestedKey) return;
       setItems((current) => reset ? page.items : [...current, ...page.items.filter((item) => !current.some((old) => old.id === item.id))]);
       offsetRef.current = page.nextOffset;
