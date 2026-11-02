@@ -1,158 +1,63 @@
-/* Miki Unlimited Backup — focused iPhone layout refinement.
-   Presentation-only overrides: preserves app behavior, local data and Telegram flows. */
-@media (max-width: 640px) {
-  .drive-main {
-    padding-bottom: calc(76px + env(safe-area-inset-bottom)) !important;
-    overflow: visible !important;
-  }
-
-  .mobile-drive-nav {
-    position: relative !important;
-    top: auto !important;
-    z-index: 2 !important;
-    display: grid !important;
-    gap: 9px !important;
-    margin: 0 0 14px !important;
-    padding: max(8px, env(safe-area-inset-top)) 16px 12px !important;
-    border: 0 !important;
-    border-bottom: 1px solid var(--line) !important;
-    border-radius: 0 0 18px 18px !important;
-    background: var(--surface) !important;
-    box-shadow: 0 4px 14px rgba(20, 28, 50, .035) !important;
-    -webkit-backdrop-filter: none !important;
-    backdrop-filter: none !important;
-  }
-
-  .mobile-app-bar { min-height: 34px !important; }
-  .mobile-wordmark { gap: 8px !important; font-size: 13px !important; font-weight: 750 !important; }
-  .mobile-wordmark svg { width: 26px !important; height: 26px !important; padding: 4px !important; border-radius: 8px !important; }
-  .mobile-title-row { min-height: 54px !important; align-items: center !important; gap: 10px !important; }
-  .mobile-title-row h1 { margin: 0 !important; font-size: 27px !important; line-height: 1.08 !important; letter-spacing: -.045em !important; }
-  .mobile-title-row p { margin: 4px 0 0 !important; font-size: 11px !important; }
-  .mobile-channel-control { max-width: 44% !important; }
-  .mobile-channel-control .channel-select { border: 1px solid var(--line) !important; border-radius: 12px !important; background: var(--soft) !important; }
-  .mobile-channel-control .channel-select summary { min-height: 40px !important; padding: 6px 9px !important; }
-  .mobile-channel-control .channel-select summary > strong { font-size: 10px !important; line-height: 1.2 !important; }
-
-  .mobile-search {
-    min-height: 44px !important;
-    border: 1px solid var(--line) !important;
-    border-radius: 13px !important;
-    background: var(--soft) !important;
-  }
-  .mobile-search input { min-height: 42px !important; font-size: 14px !important; }
-  .mobile-tools { gap: 7px !important; margin: 0 -16px !important; padding: 0 16px 1px !important; }
-  .mobile-tools button, .mobile-tools .file-sort-control {
-    min-height: 32px !important;
-    padding: 0 11px !important;
-    border: 1px solid var(--line) !important;
-    border-radius: 999px !important;
-    background: var(--surface) !important;
-    color: var(--muted) !important;
-    font-size: 10px !important;
-    font-weight: 650 !important;
-  }
-  .mobile-tools button.active {
-    border-color: color-mix(in srgb, var(--accent) 38%, var(--line)) !important;
-    background: var(--accent-soft) !important;
-    color: var(--accent) !important;
-  }
-
-  .library-stats {
-    margin: 0 12px 14px !important;
-    padding: 15px !important;
-    border: 1px solid var(--line) !important;
-    border-radius: 18px !important;
-    background: var(--surface) !important;
-    box-shadow: 0 5px 18px rgba(25, 35, 65, .035) !important;
-  }
-  .library-stats-heading { align-items: center !important; margin-bottom: 12px !important; }
-  .library-stats-heading h2 { margin: 3px 0 0 !important; font-size: 17px !important; }
-  .library-stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 7px !important; }
-  .library-stat-card {
-    min-width: 0 !important;
-    min-height: 112px !important;
-    padding: 10px 8px !important;
-    border: 1px solid var(--line) !important;
-    border-radius: 13px !important;
-    background: var(--soft) !important;
-  }
-  .library-stat-icon { width: 27px !important; height: 27px !important; }
-  .library-stat-label { min-height: 24px !important; font-size: 9px !important; line-height: 1.25 !important; }
-  .library-stat-card strong { font-size: 18px !important; line-height: 1.1 !important; }
-  .library-stat-card small { font-size: 9px !important; line-height: 1.3 !important; overflow-wrap: anywhere !important; }
-  .library-stats-footer { align-items: center !important; gap: 8px !important; }
-  .library-stats-footer > div > span:last-child strong { font-size: 10px !important; line-height: 1.3 !important; }
-  .library-stats-footer > div > span:last-child small { font-size: 9px !important; }
-
-
-  .library-stats-actions {
-    display: flex !important;
-    align-items: center !important;
-    flex-wrap: wrap !important;
-    gap: 8px !important;
-    margin-top: 12px !important;
-  }
-  .library-stats-actions > button {
-    min-height: 36px !important;
-    padding: 0 12px !important;
-    border: 1px solid var(--line) !important;
-    border-radius: 11px !important;
-    background: var(--accent-soft) !important;
-    color: var(--accent) !important;
-    font-size: 11px !important;
-    font-weight: 700 !important;
-  }
-  .library-stats-actions > span { font-size: 9px !important; line-height: 1.35 !important; }
-  .library-stats-note { display: block !important; margin-top: 8px !important; font-size: 9px !important; line-height: 1.4 !important; }
-
-  .folder-toolbar {
-    margin: 0 12px 16px !important;
-    padding: 14px !important;
-    border: 1px solid var(--line) !important;
-    border-radius: 18px !important;
-    background: var(--surface) !important;
-    box-shadow: 0 4px 14px rgba(25, 35, 65, .025) !important;
-  }
-  .folder-toolbar-title strong { font-size: 14px !important; }
-  .folder-toolbar-actions { gap: 7px !important; }
-  .folder-toolbar-actions button { min-height: 36px !important; padding: 0 11px !important; border-radius: 10px !important; font-size: 11px !important; }
-  .folder-tile { min-height: 82px !important; padding: 11px !important; border-radius: 13px !important; }
-
-  .ios-tabbar {
-    position: fixed !important;
-    right: 0 !important; bottom: 0 !important; left: 0 !important;
-    z-index: 50 !important;
-    display: grid !important;
-    grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
-    align-items: center !important;
-    min-height: calc(66px + env(safe-area-inset-bottom)) !important;
-    padding: 6px 5px max(6px, env(safe-area-inset-bottom)) !important;
-    border: 0 !important;
-    border-top: 1px solid var(--line) !important;
-    border-radius: 16px 16px 0 0 !important;
-    background: var(--floating) !important;
-    box-shadow: 0 -5px 20px rgba(25, 35, 65, .07) !important;
-    -webkit-backdrop-filter: saturate(170%) blur(18px) !important;
-    backdrop-filter: saturate(170%) blur(18px) !important;
-  }
-  .ios-tabbar > button {
-    min-width: 0 !important;
-    min-height: 50px !important;
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: center !important;
-    justify-content: center !important;
-    gap: 4px !important;
-    padding: 3px 1px !important;
-    white-space: nowrap !important;
-    font-size: 9px !important;
-    line-height: 1.1 !important;
-  }
-  .ios-tabbar > button svg { width: 20px !important; height: 20px !important; }
-  .ios-tabbar > .ios-tabbar-upload { border-radius: 12px !important; background: transparent !important; box-shadow: none !important; }
-  .ios-tabbar-upload svg { width: 21px !important; height: 21px !important; padding: 3px !important; border-radius: 8px !important; background: var(--accent) !important; color: white !important; box-sizing: content-box !important; }
-  .ios-tabbar-upload span { color: var(--muted) !important; font-size: 9px !important; }
-  .upload-panel, .download-panel { bottom: calc(76px + env(safe-area-inset-bottom)) !important; }
-  .bulk-action-bar { bottom: calc(76px + env(safe-area-inset-bottom)) !important; }
+/* Miki Backup — premium dark interface refresh */
+:root[data-theme="dark"] {
+  --page:#0b0c10; --surface:#17191f; --soft:#20232b; --sidebar:#111319;
+  --ink:#f4f5f7; --muted:#969ba8; --line:#292d36; --line-strong:#3b414d;
+  --accent:#8b8cff; --accent-dark:#7476f5; --accent-soft:#292a43;
+  --mobile-nav:rgba(17,19,25,.94); --floating:rgba(20,22,29,.96);
+  --thumbnail:#20232b; --thumbnail-line:#303540; --success:#43d6a0;
+  color-scheme:dark;
+}
+:root[data-theme="dark"] html, :root[data-theme="dark"] body,
+:root[data-theme="dark"] #root { background:#0b0c10 !important; color:#f4f5f7 !important; }
+:root[data-theme="dark"] .app-shell,
+:root[data-theme="dark"] .drive-main { background:#0b0c10 !important; }
+:root[data-theme="dark"] .sidebar { background:#111319 !important; border-color:#292d36 !important; }
+:root[data-theme="dark"] .mobile-drive-nav { background:rgba(17,19,25,.97) !important; border-color:#292d36 !important; box-shadow:0 8px 28px rgba(0,0,0,.22) !important; }
+:root[data-theme="dark"] .mobile-title-row h1 { color:#f5f6fa !important; font-size:29px !important; font-weight:780 !important; }
+:root[data-theme="dark"] .mobile-search { background:#171a21 !important; border:1px solid #303540 !important; border-radius:15px !important; }
+:root[data-theme="dark"] .mobile-tools button,
+:root[data-theme="dark"] .mobile-tools .file-sort-control { background:#171a21 !important; border-color:#303540 !important; color:#c3c7d0 !important; }
+:root[data-theme="dark"] .mobile-tools button.active { background:#292a43 !important; color:#b4b5ff !important; border-color:#5556a0 !important; }
+:root[data-theme="dark"] .library-stats,
+:root[data-theme="dark"] .folder-toolbar { background:#17191f !important; border:1px solid #292d36 !important; border-radius:20px !important; box-shadow:0 10px 28px rgba(0,0,0,.16) !important; }
+:root[data-theme="dark"] .library-stats-heading h2,
+:root[data-theme="dark"] .folder-toolbar-title strong { color:#f4f5f7 !important; }
+:root[data-theme="dark"] .library-stat-card { background:#20232b !important; border:1px solid #303540 !important; border-radius:16px !important; }
+:root[data-theme="dark"] .library-stat-card strong { color:#fff !important; font-size:21px !important; }
+:root[data-theme="dark"] .library-stat-label,
+:root[data-theme="dark"] .library-stats-subtitle,
+:root[data-theme="dark"] .library-stat-card small { color:#a5aab5 !important; }
+:root[data-theme="dark"] .library-stat-icon.photo-stat { background:#292747 !important; color:#aaa5ff !important; }
+:root[data-theme="dark"] .library-stat-icon.video-stat { background:#3a2635 !important; color:#f39bc5 !important; }
+:root[data-theme="dark"] .library-stat-icon.storage-stat-icon { background:#203448 !important; color:#82c4ff !important; }
+:root[data-theme="dark"] .folder-tile { background:#20232b !important; border:1px solid #303540 !important; color:#f4f5f7 !important; }
+:root[data-theme="dark"] .month-group > h2 { color:#e9eaf0 !important; }
+:root[data-theme="dark"] .media-card { background:transparent !important; border:0 !important; box-shadow:none !important; }
+:root[data-theme="dark"] .media-open { background:transparent !important; }
+:root[data-theme="dark"] .media-info strong { color:#e9ebf2 !important; }
+:root[data-theme="dark"] .media-info small { color:#969ba8 !important; }
+:root[data-theme="dark"] .ios-tabbar { background:rgba(20,22,29,.97) !important; border:1px solid #303540 !important; border-bottom:0 !important; box-shadow:0 -8px 30px rgba(0,0,0,.3) !important; }
+:root[data-theme="dark"] .ios-tabbar > button { color:#8e94a2 !important; }
+:root[data-theme="dark"] .ios-tabbar > button.active { color:#aaaaff !important; }
+:root[data-theme="dark"] .ios-tabbar > .ios-tabbar-upload svg { background:#7779f5 !important; color:white !important; }
+:root[data-theme="dark"] .ios-tabbar-upload span { color:#c4c6d0 !important; }
+:root[data-theme="dark"] .library-stats-footer { border-color:#303540 !important; }
+:root[data-theme="dark"] .library-stats-actions > button { background:#292a43 !important; border-color:#5556a0 !important; color:#c1c2ff !important; }
+:root[data-theme="dark"] .library-stats-note { color:#969ba8 !important; }
+@media (max-width:640px) {
+  .drive-main { padding-bottom:calc(84px + env(safe-area-inset-bottom)) !important; }
+  .mobile-drive-nav { gap:12px !important; padding: max(10px,env(safe-area-inset-top)) 16px 14px !important; }
+  .mobile-app-bar { min-height:38px !important; }
+  .mobile-wordmark { font-size:13px !important; font-weight:750 !important; }
+  .mobile-title-row { min-height:55px !important; }
+  .mobile-search { min-height:48px !important; }
+  .mobile-search input { min-height:46px !important; }
+  .library-stats { margin:0 12px 14px !important; padding:16px !important; }
+  .library-stats-grid { grid-template-columns:repeat(3,minmax(0,1fr)) !important; gap:8px !important; }
+  .library-stat-card { min-height:112px !important; padding:11px 8px !important; }
+  .folder-toolbar { margin:0 12px 16px !important; padding:15px !important; }
+  .ios-tabbar { grid-template-columns:repeat(6,minmax(0,1fr)) !important; min-height:calc(70px + env(safe-area-inset-bottom)) !important; padding:7px 5px max(7px,env(safe-area-inset-bottom)) !important; }
+  .ios-tabbar > button { min-width:0 !important; min-height:52px !important; gap:4px !important; font-size:9px !important; }
+  .ios-tabbar > button svg { width:20px !important; height:20px !important; }
+  .upload-panel,.download-panel,.bulk-action-bar { bottom:calc(82px + env(safe-area-inset-bottom)) !important; }
 }
