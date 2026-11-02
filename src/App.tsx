@@ -27,7 +27,7 @@ function AppContent() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
-    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#181816" : "#f7f7f4");
+    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#151827" : "#f7f8fc");
   }, [theme]);
 
   const changeTheme = async (next: Theme) => {
