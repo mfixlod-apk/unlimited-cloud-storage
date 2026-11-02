@@ -403,6 +403,8 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
   const [dragging, setDragging] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
   const [libraryScan, setLibraryScan] = useState<{ running: boolean; scanned: number; photos: number; videos: number; documents: number; bytes: number; complete: boolean; error?: string }>({ running: false, scanned: 0, photos: 0, videos: 0, documents: 0, bytes: 0, complete: false });
+  const remoteFileIndex = useRef(new Map<string, Set<number>>());
+  const remoteFileIndexComplete = useRef(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const mediaInput = useRef<HTMLInputElement>(null);
@@ -861,6 +863,13 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
         continue;
       }
       const plannedName = safeFileName(datePrefixUploads ? await datePrefixedName(file) : existing?.name || file.name, "unnamed");
+      const sourceNameKey = normalizedUploadName(file.name);
+      const remoteSizes = remoteFileIndex.current.get(sourceNameKey);
+      const alreadyInTelegram = remoteFileIndexComplete.current && Boolean(remoteSizes?.has(Math.max(0, file.size || 0)));
+      if (preventDuplicateNames && alreadyInTelegram) {
+        duplicatesSkipped += 1;
+        continue;
+      }
       if (preventDuplicateNames && !existing && knownUploadNames.has(normalizedUploadName(plannedName))) {
         duplicatesSkipped += 1;
         continue;
@@ -1067,6 +1076,8 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
   const scanEntireLibrary = async () => {
     if (libraryScan.running) return;
     setLibraryScan({ running: true, scanned: 0, photos: 0, videos: 0, documents: 0, bytes: 0, complete: false });
+    remoteFileIndexComplete.current = false;
+    const nextRemoteIndex = new Map<string, Set<number>>();
     let offset = 0;
     let scanned = 0;
     let photos = 0;
@@ -1083,14 +1094,22 @@ export function DriveScreen({ account, channel, channels, showPublicChannels, th
           else if (item.kind === "video") videos += 1;
           else documents += 1;
           bytes += Math.max(0, item.size || 0);
+          const key = normalizedUploadName(item.name);
+          const sizes = nextRemoteIndex.get(key) || new Set<number>();
+          sizes.add(Math.max(0, item.size || 0));
+          nextRemoteIndex.set(key, sizes);
         }
         setLibraryScan({ running: true, scanned, photos, videos, documents, bytes, complete: false });
         if (!page.hasMore || page.nextOffset <= offset) break;
         offset = page.nextOffset;
         hasMorePages = page.hasMore;
       }
+      remoteFileIndex.current = nextRemoteIndex;
+      remoteFileIndexComplete.current = true;
       setLibraryScan({ running: false, scanned, photos, videos, documents, bytes, complete: true });
     } catch (cause) {
+      remoteFileIndex.current.clear();
+      remoteFileIndexComplete.current = false;
       setLibraryScan({ running: false, scanned, photos, videos, documents, bytes, complete: false, error: friendlyError(cause) });
     }
   };
@@ -2114,7 +2133,7 @@ function SettingsPanel({ account, theme, memoryLimitMb, effectiveMemoryMb, preve
       <header><div><span className="eyebrow">Preferences</span><h2>Settings</h2></div><button onClick={onClose}><CloseIcon /></button></header>
       <section><h3>Account</h3><div className="settings-row"><span className="avatar">{userName(account).slice(0, 1).toUpperCase()}</span><div><strong>{userName(account)}</strong><small>Telegram account</small></div></div></section>
       <section><h3>Appearance</h3><label className="settings-toggle"><span><strong>Dark mode</strong><small>Use the darker interface on this browser.</small></span><input type="checkbox" checked={theme === "dark"} onChange={(event) => void onTheme(event.target.checked ? "dark" : "light")} /></label></section>
-      <section><h3>Uploads</h3><label className="settings-toggle"><span><strong>Prevent duplicate filenames</strong><small>Skip a file when the same name is already discovered in this channel or its local sync queue. Unloaded older history may not be checked.</small></span><input type="checkbox" checked={preventDuplicateNames} onChange={(event) => void onPreventDuplicateNames(event.target.checked)} /></label><label className="settings-toggle"><span><strong>Prefix names with media date</strong><small>Use embedded capture date first, then a date in the filename, and finally the file's last-modified date.</small></span><input type="checkbox" checked={datePrefixUploads} onChange={(event) => void onDatePrefixUploads(event.target.checked)} /></label></section>
+      <section><h3>Uploads</h3><label className="settings-toggle"><span><strong>Prevent duplicate uploads</strong><small>After a full library scan, also skip files whose original filename and size already exist in this Telegram channel. This is a practical match, not a cryptographic proof that two files are identical.</small></span><input type="checkbox" checked={preventDuplicateNames} onChange={(event) => void onPreventDuplicateNames(event.target.checked)} /></label><label className="settings-toggle"><span><strong>Prefix names with media date</strong><small>Use embedded capture date first, then a date in the filename, and finally the file's last-modified date.</small></span><input type="checkbox" checked={datePrefixUploads} onChange={(event) => void onDatePrefixUploads(event.target.checked)} /></label></section>
       <section><h3>Performance</h3><label className="memory-setting"><span><strong>Memory limit</strong><small>Controls off-screen gallery preloading and full-file preview fallback.</small></span><select value={memoryLimitMb} onChange={(event) => void onMemoryLimit(Number(event.target.value))}><option value={256}>256 MB</option><option value={512}>512 MB</option><option value={1024}>1 GB (default)</option><option value={2048}>2 GB</option></select><em>{effectiveMemoryMb < memoryLimitMb ? `Adjusted to ${formatSize(effectiveMemoryMb * 1024 * 1024)} for this device.` : "The browser may use less when content is off screen."}</em></label></section>
       <section><h3>Privacy & device</h3><div className="security-box"><ShieldIcon /><p><strong>Browser-only connection</strong>Credentials and session data stay in IndexedDB on this browser profile. Files are not end-to-end encrypted by this app.</p></div><button className="settings-action" onClick={() => window.dispatchEvent(new Event("open-security-settings"))}><ShieldIcon /><span><strong>Security & PIN</strong><small>Manage the local gallery lock</small></span></button><button className="settings-action" onClick={clearCache}><RefreshIcon /><span><strong>{cleared ? "Thumbnail cache cleared" : "Clear thumbnail cache"}</strong><small>Original files remain in Telegram</small></span>{cleared && <CheckIcon />}</button><button className="settings-action" onClick={() => void onForget()}><CloseIcon /><span><strong>Forget this browser</strong><small>Remove local credentials, session, and cache only</small></span></button></section>
       <section className="danger-zone"><button onClick={() => void onLogOut()}><TrashIcon />Log out of Telegram</button><small>This revokes this app's Telegram session and clears local data.</small></section>
