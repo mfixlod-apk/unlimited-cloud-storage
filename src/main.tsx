@@ -4,6 +4,7 @@ import App from "./App";
 import "./styles.css";
 import "./document-filename-polish.css";
 import "./cloudvault-polish.css";
+import "./miki-light-premium.css";
 
 globalThis.Buffer = Buffer;
 

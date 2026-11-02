@@ -9,7 +9,7 @@ import { SecurityGate } from "./screens/SecurityGate";
 type Stage = "boot" | "credentials" | "auth" | "channels" | "drive" | "home";
 
 function AppContent() {
-  const [theme, setTheme] = useState<Theme>(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const [theme, setTheme] = useState<Theme>("light");
   const [stage, setStage] = useState<Stage>("boot");
   const [credentials, setCredentials] = useState<TelegramCredentials>();
   const [remember, setRemember] = useState(false);
@@ -27,7 +27,7 @@ function AppContent() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
-    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#181816" : "#f7f7f4");
+    document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#151827" : "#f7f8fc");
   }, [theme]);
 
   const changeTheme = async (next: Theme) => {
