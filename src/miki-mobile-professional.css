@@ -154,3 +154,67 @@
   .ios-tabbar > .ios-tabbar-upload svg { background:transparent !important; }
   .drive-main { padding-bottom:calc(90px + env(safe-area-inset-bottom)) !important; }
 }
+
+
+/* Critical layout correction: virtual gallery chunks must stack vertically and fill the viewport. */
+@media (max-width:640px) {
+  .gallery-chunks {
+    display:grid !important;
+    grid-template-columns:minmax(0,1fr) !important;
+    width:100% !important;
+    min-width:0 !important;
+    gap:12px !important;
+  }
+  .gallery-chunks > .virtual-chunk,
+  .gallery-chunks > .gallery.virtual-chunk {
+    display:grid !important;
+    width:100% !important;
+    min-width:0 !important;
+    max-width:100% !important;
+    grid-template-columns:repeat(3,minmax(0,1fr)) !important;
+    align-content:start !important;
+    gap:8px !important;
+    flex:none !important;
+  }
+  .gallery-groups,.month-groups,.month-group {
+    display:block !important;
+    width:100% !important;
+    min-width:0 !important;
+    max-width:100% !important;
+  }
+  .month-group { margin-bottom:22px !important; }
+  .month-group > h2 { width:100% !important; }
+  .media-card,.media-card .media-open { min-width:0 !important; width:100% !important; max-width:100% !important; }
+  .media-card .thumbnail { width:100% !important; min-width:0 !important; aspect-ratio:1 / 1 !important; }
+  .media-card.document-card { min-width:0 !important; }
+  .media-card.document-card .media-info {
+    display:block !important;
+    width:100% !important;
+    min-width:0 !important;
+    max-width:100% !important;
+    overflow:hidden !important;
+    padding:7px 3px 5px !important;
+  }
+  .media-card.document-card .media-info > strong {
+    display:block !important;
+    width:100% !important;
+    min-width:0 !important;
+    overflow:hidden !important;
+    white-space:nowrap !important;
+    text-overflow:ellipsis !important;
+    overflow-wrap:normal !important;
+    font-size:10px !important;
+    line-height:1.35 !important;
+  }
+  .media-card.document-card .media-info .file-type-label {
+    display:inline-flex !important;
+    width:auto !important;
+    max-width:100% !important;
+    white-space:nowrap !important;
+    overflow:hidden !important;
+    text-overflow:ellipsis !important;
+    writing-mode:horizontal-tb !important;
+    margin-top:4px !important;
+  }
+  .gallery:not(.list-layout) .media-card { align-self:start !important; }
+}
