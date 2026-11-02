@@ -9,7 +9,7 @@ import { SecurityGate } from "./screens/SecurityGate";
 type Stage = "boot" | "credentials" | "auth" | "channels" | "drive" | "home";
 
 function AppContent() {
-  const [theme, setTheme] = useState<Theme>("light");
+  const [theme, setTheme] = useState<Theme>("dark");
   const [stage, setStage] = useState<Stage>("boot");
   const [credentials, setCredentials] = useState<TelegramCredentials>();
   const [remember, setRemember] = useState(false);
@@ -21,7 +21,7 @@ function AppContent() {
   const driveScrollPosition = useRef(0);
 
   useEffect(() => {
-    void localStore.getTheme().then((saved) => { if (saved) setTheme(saved); });
+    void localStore.saveTheme("dark");
   }, []);
 
   useEffect(() => {
