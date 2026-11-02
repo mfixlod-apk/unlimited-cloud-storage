@@ -5,6 +5,7 @@ import "./styles.css";
 import "./document-filename-polish.css";
 import "./cloudvault-polish.css";
 import "./miki-light-premium.css";
+import "./miki-mobile-professional.css";
 
 globalThis.Buffer = Buffer;
 
